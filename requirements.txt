@@ -1,0 +1,31 @@
+# ─── Core ─────────────────────────────────────────────────────────────────────
+python-dotenv
+requests
+numpy
+pandas
+tqdm
+rich
+openai
+tiktoken
+pydantic
+
+# ─── Dataset Preparation ─────────────────────────────────────────────────────
+datasets
+huggingface_hub
+
+# ─── NLP Metrics (eval scripts) ──────────────────────────────────────────────
+nltk
+rouge-score
+bert-score
+sentence-transformers
+scipy
+transformers
+
+# ─── Excel Export ─────────────────────────────────────────────────────────────
+openpyxl
+
+# ─── Optional: Third-party Memory Service SDKs ──────────────────────────────
+# Most clients use REST (requests) and need no extra package.
+# Uncomment the ones you need based on --lib choice.
+# zep-cloud             # --lib zep      (Graph mode requires zep-cloud SDK)
+# vikingdb-python-sdk   # --lib viking   (Volcengine VikingDB; import name: vikingdb)
