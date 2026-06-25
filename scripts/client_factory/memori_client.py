@@ -57,7 +57,7 @@ class MemoriClient(BaseApiClient):
             },
             qps=qps,
         )
-        self._process_id = env_str("MEMORI_PROCESS_ID", "memeval")
+        self._process_id = env_str("MEMORI_PROCESS_ID", "omnimemeval")
         self._session_tpl = env_str("MEMORI_SESSION_ID", "")
         self._batch_size = env_int("MEMORI_BATCH_SIZE", 20, min_value=1)
         self._max_batch_chars = env_max_batch_chars("MEMORI_MAX_BATCH_CHARS")
@@ -70,7 +70,7 @@ class MemoriClient(BaseApiClient):
     def _session_id(self, user_id):
         if self._session_tpl:
             return self._session_tpl.replace("{user_id}", user_id)
-        return f"memeval_{user_id}"
+        return f"omnimemeval_{user_id}"
 
     def _attribution(self, user_id):
         return {

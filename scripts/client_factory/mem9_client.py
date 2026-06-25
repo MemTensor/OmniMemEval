@@ -107,7 +107,7 @@ class Mem9Client(BaseApiClient):
     def __init__(self):
         api_key = require_env("MEM9_API_KEY")
         base_url = env_str("MEM9_BASE_URL", "https://api.mem9.ai")
-        header_agent_id = env_str("MEM9_AGENT_ID", "memeval")
+        header_agent_id = env_str("MEM9_AGENT_ID", "omnimemeval")
         self._ingest_mode = env_str("MEM9_INGEST_MODE", "smart")
         self._sync = env_bool("MEM9_SYNC", False)
         self._batch_size = env_int("MEM9_BATCH_SIZE", 20, min_value=1)

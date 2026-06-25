@@ -1,7 +1,7 @@
 # Environment Configuration Examples
 
 This directory contains product-specific environment templates for the public
-MemEval adapter layer. The open-source benchmark pipelines are LoCoMo and
+OmniMemEval adapter layer. The open-source benchmark pipelines are LoCoMo and
 LongMemEval.
 
 ## Quick Start

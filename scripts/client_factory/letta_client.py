@@ -216,7 +216,7 @@ class LettaClient(BaseApiClient):
             return self._agent_locks[agent_id]
 
     def _find_agent(self, conv_key):
-        agent_name = f"memeval_{conv_key}"
+        agent_name = f"omnimemeval_{conv_key}"
         resp = self._get("/v1/agents/", params={"name": agent_name, "limit": 1})
         if resp.status_code != 200:
             return None
@@ -233,7 +233,7 @@ class LettaClient(BaseApiClient):
         if aid:
             self._agent_map[conv_key] = aid
             return aid
-        agent_name = f"memeval_{conv_key}"
+        agent_name = f"omnimemeval_{conv_key}"
         payload = {
             "name": agent_name,
         }
@@ -294,7 +294,7 @@ class LettaClient(BaseApiClient):
             print(f"  ⚠ Failed to set sleeptime frequency: {e}")
 
     def _find_folder(self, conv_key):
-        folder_name = f"memeval_{conv_key}"
+        folder_name = f"omnimemeval_{conv_key}"
         resp = self._get("/v1/folders/", params={"name": folder_name, "limit": 1})
         if resp.status_code != 200:
             return None
@@ -355,8 +355,8 @@ class LettaClient(BaseApiClient):
             self._folder_map[conv_key] = folder_id
             return folder_id
         payload = {
-            "name": f"memeval_{conv_key}",
-            "metadata": {"source": "memeval", "conv_key": conv_key},
+            "name": f"omnimemeval_{conv_key}",
+            "metadata": {"source": "omnimemeval", "conv_key": conv_key},
         }
         if self._folder_embedding:
             payload["embedding"] = self._folder_embedding

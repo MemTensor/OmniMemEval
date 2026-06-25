@@ -126,7 +126,7 @@ def avg_prompt_tokens(token_modules: dict[str, Any]) -> float | None:
 
 
 def render_header(lines: list[str], lib: str, version: str, now: str) -> None:
-    lines.append(f"# MemEval Experiment Report — {lib}-{version}")
+    lines.append(f"# OmniMemEval Experiment Report — {lib}-{version}")
     lines.append("")
     lines.append(f"> Generated: {now}")
     lines.append("")

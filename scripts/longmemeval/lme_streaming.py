@@ -903,7 +903,7 @@ def main() -> int:
             env_path = Path.cwd() / args.env
         if not env_path.is_file():
             raise SystemExit(f"Env file not found: {args.env}")
-        os.environ["MEMEVAL_ENV_FILE"] = str(env_path.resolve())
+        os.environ["OMNIMEMEVAL_ENV_FILE"] = str(env_path.resolve())
 
     load_env()
     configure_single_user_streaming(args.lib)

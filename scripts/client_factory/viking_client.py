@@ -53,7 +53,7 @@ class VikingClient:
         VIKING_SCHEME           – http or https (default: https)
         VIKING_COLLECTION       – collection name (**required**)
         VIKING_PROJECT          – project name (default: default)
-        VIKING_ASSISTANT_ID     – assistant id for isolation (default: memeval)
+        VIKING_ASSISTANT_ID     – assistant id for isolation (default: omnimemeval)
         VIKING_EVENT_TYPES      – event types to search (default: event_v1)
         VIKING_PROFILE_TYPES    – profile types to search (default: profile_v1)
         VIKING_PROFILE_LIMIT    – max profile results per search (default: 10)
@@ -79,7 +79,7 @@ class VikingClient:
         self._collection = self._client.get_collection(
             collection_name=collection_name, project_name=project_name,
         )
-        self._assistant_id = env_str("VIKING_ASSISTANT_ID", "memeval")
+        self._assistant_id = env_str("VIKING_ASSISTANT_ID", "omnimemeval")
         self._event_types = env_csv("VIKING_EVENT_TYPES") or ["event_v1"]
         self._profile_types = env_csv("VIKING_PROFILE_TYPES") or ["profile_v1"]
         self._profile_limit = env_int("VIKING_PROFILE_LIMIT", 10, min_value=0)

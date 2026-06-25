@@ -27,4 +27,4 @@ show_help_if_requested "$@"
 extract_env_arg "$@"
 set -- "${_REMAINING_ARGS[@]}"
 
-exec python3 "$SCRIPT_DIR/cleanup_eval_memory.py" --env "$MEMEVAL_ENV_FILE" "$@"
+exec python3 "$SCRIPT_DIR/cleanup_eval_memory.py" --env "$OMNIMEMEVAL_ENV_FILE" "$@"

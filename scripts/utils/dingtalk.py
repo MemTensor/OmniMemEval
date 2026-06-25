@@ -1,4 +1,4 @@
-"""DingTalk webhook notification for MemEval.
+"""DingTalk webhook notification for OmniMemEval.
 
 Generic module — any benchmark script can call `send_eval_result()` to push
 a formatted evaluation summary to a DingTalk group robot.
@@ -61,7 +61,7 @@ def _build_eval_markdown(
     category_scores: list of {"name": str, "score": float, "count": int}
     """
     lines = [
-        f"### MemEval · {benchmark}",
+        f"### OmniMemEval · {benchmark}",
         "",
         f"> **{framework}** / {version}",
         "",
@@ -132,7 +132,7 @@ def send_eval_result(
     payload = {
         "msgtype": "markdown",
         "markdown": {
-            "title": f"MemEval · {benchmark} · {framework}",
+            "title": f"OmniMemEval · {benchmark} · {framework}",
             "text": md,
         },
     }

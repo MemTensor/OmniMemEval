@@ -1,7 +1,7 @@
 # LoCoMo Dataset
 
 LoCoMo (Long Conversation Memory) is a benchmark dataset for evaluating
-long-conversation memory capabilities. MemEval uses 10 conversation samples
+long-conversation memory capabilities. OmniMemEval uses 10 conversation samples
 from the [original LoCoMo dataset](https://github.com/snap-research/locomo) to
 assess memory systems' retrieval and reasoning abilities across extended
 multi-session dialogues.
@@ -12,7 +12,7 @@ multi-session dialogues.
 |------|------|-------------|
 | `locomo10.json` | ~2.8 MB | Downloaded artifact with original structure: conversations, QA pairs, event summaries, observations |
 
-`locomo10.json` is not version-controlled by MemEval. Download it with
+`locomo10.json` is not version-controlled by OmniMemEval. Download it with
 `prepare_locomo.py`; the upstream CC BY-NC 4.0 dataset license remains in force.
 
 ## Dataset Statistics
@@ -81,7 +81,7 @@ conversation records before replacing the local copy.
 `locomo10.json` is downloaded from [`snap-research/locomo`](https://github.com/snap-research/locomo)
 and follows the upstream dataset license,
 [Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](https://github.com/snap-research/locomo/blob/main/LICENSE.txt).
-The MemEval repository license applies to MemEval code; it does not override the
+The OmniMemEval repository license applies to OmniMemEval code; it does not override the
 upstream LoCoMo dataset license. Use of this data must remain non-commercial and
 include attribution to the LoCoMo authors.
 

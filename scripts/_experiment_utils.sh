@@ -10,7 +10,7 @@
 
 # ─── Env file selection ──────────────────────────────────────────────────────
 # Call: extract_env_arg "$@"; set -- "${_REMAINING_ARGS[@]}"
-# Extracts --env <file> from argument list, exports MEMEVAL_ENV_FILE.
+# Extracts --env <file> from argument list, exports OMNIMEMEVAL_ENV_FILE.
 # In replay mode, --env may be inferred from the saved config when available.
 # Must be called BEFORE try_replay.
 
@@ -31,7 +31,7 @@ show_help_if_requested() {
 }
 
 extract_env_arg() {
-    MEMEVAL_ENV_FILE=""
+    OMNIMEMEVAL_ENV_FILE=""
     _FROM_STEP=1
     _TO_STEP=999
     _FROM_STEP_EXPLICIT=false
@@ -45,12 +45,12 @@ extract_env_arg() {
                     echo "Error: --env requires a file path"
                     exit 1
                 fi
-                MEMEVAL_ENV_FILE="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
-                if [[ ! -f "$MEMEVAL_ENV_FILE" ]]; then
-                    echo "Error: env file not found: $MEMEVAL_ENV_FILE"
+                OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+                if [[ ! -f "$OMNIMEMEVAL_ENV_FILE" ]]; then
+                    echo "Error: env file not found: $OMNIMEMEVAL_ENV_FILE"
                     exit 1
                 fi
-                export MEMEVAL_ENV_FILE
+                export OMNIMEMEVAL_ENV_FILE
                 shift 2
                 ;;
             --from-step)
@@ -74,14 +74,14 @@ extract_env_arg() {
                 ;;
         esac
     done
-    if [[ -z "$MEMEVAL_ENV_FILE" ]]; then
+    if [[ -z "$OMNIMEMEVAL_ENV_FILE" ]]; then
         if [[ "$_REPLAY_REQUESTED" == "true" ]]; then
             return 0
         fi
         echo "Error: --env <file> is required (e.g. --env .env.mem0)"
         exit 1
     fi
-    echo "Using env file: $MEMEVAL_ENV_FILE"
+    echo "Using env file: $OMNIMEMEVAL_ENV_FILE"
 }
 
 # ─── Argument validation helpers ─────────────────────────────────────────────
@@ -272,7 +272,7 @@ pipeline_summary() {
         fi
     done
     echo "╠══════════════════════════════════════════════════════════════════╣"
-    local _env_flag=" --env $(basename "$MEMEVAL_ENV_FILE")"
+    local _env_flag=" --env $(basename "$OMNIMEMEVAL_ENV_FILE")"
     printf "║  %-64s║\n" "Reproduce: ./scripts/$SCRIPT_NAME$_env_flag --replay $RESULTS_DIR"
     echo "╚══════════════════════════════════════════════════════════════════╝"
 }
@@ -298,7 +298,7 @@ try_replay() {
     source "$config_file"
     local orig_version="$VERSION"
 
-    if [[ -z "${MEMEVAL_ENV_FILE:-}" ]]; then
+    if [[ -z "${OMNIMEMEVAL_ENV_FILE:-}" ]]; then
         local env_basename="${ENV_FILE_BASENAME:-}"
         local candidate_env=""
         if [[ -n "$env_basename" && -f "$PROJECT_DIR/$env_basename" ]]; then
@@ -310,9 +310,9 @@ try_replay() {
             echo "       Use: ./scripts/$SCRIPT_NAME --env <file> --replay $replay_dir"
             exit 1
         fi
-        MEMEVAL_ENV_FILE="$(cd "$(dirname "$candidate_env")" && pwd)/$(basename "$candidate_env")"
-        export MEMEVAL_ENV_FILE
-        echo "Using inferred env file: $MEMEVAL_ENV_FILE"
+        OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$candidate_env")" && pwd)/$(basename "$candidate_env")"
+        export OMNIMEMEVAL_ENV_FILE
+        echo "Using inferred env file: $OMNIMEMEVAL_ENV_FILE"
     fi
 
     # Strip any existing _replay_* suffix to avoid nesting, then append new one
@@ -332,7 +332,7 @@ try_replay() {
     echo ""
     echo "─── env differences (snapshot vs current) ───"
     local snap_file="$replay_dir/snapshot_eval.env"
-    local current_file="$MEMEVAL_ENV_FILE"
+    local current_file="$OMNIMEMEVAL_ENV_FILE"
     if [[ -f "$snap_file" ]]; then
         if diff -u "$snap_file" "$current_file" > /dev/null 2>&1; then
             echo "  No differences."
@@ -356,7 +356,7 @@ save_experiment_config() {
     local timestamp
     local env_basename
     timestamp="$(date '+%Y-%m-%d %H:%M:%S %Z')"
-    env_basename="$(basename "$MEMEVAL_ENV_FILE")"
+    env_basename="$(basename "$OMNIMEMEVAL_ENV_FILE")"
 
     mkdir -p "$dest"
 
@@ -377,7 +377,7 @@ save_experiment_config() {
     } >> "$dest/experiment_config.sh"
 
     # 3) Snapshot of env file (mask sensitive values)
-    sed -E 's/(.*(_KEY|_SECRET|_TOKEN|_PASSWORD)=).*/\1***/' "$MEMEVAL_ENV_FILE" > "$dest/snapshot_eval.env"
+    sed -E 's/(.*(_KEY|_SECRET|_TOKEN|_PASSWORD)=).*/\1***/' "$OMNIMEMEVAL_ENV_FILE" > "$dest/snapshot_eval.env"
 
     echo "Experiment config saved to $dest/"
     echo "  - experiment_config.sh  (script params, sourceable)"

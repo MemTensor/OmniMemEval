@@ -60,7 +60,7 @@ class MemosClient(BaseApiClient):
 
     def _local_mem_cube_id(self, user_id):
         if self._local_mem_cube_id_mode == "constant":
-            return env_str("MEMOS_LOCAL_MEM_CUBE_ID", "memeval")
+            return env_str("MEMOS_LOCAL_MEM_CUBE_ID", "omnimemeval")
         return user_id
 
     @staticmethod

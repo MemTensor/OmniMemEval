@@ -1,4 +1,4 @@
-"""Centralized LLM client factory for MemEval.
+"""Centralized LLM client factory for OmniMemEval.
 
 Each evaluation module (ANSWER, EVAL) can have its own model, API key,
 and base URL, configured via environment variables.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Delete MemEval ingestion data for a LoCoMo or LongMemEval run."""
+"""Delete OmniMemEval ingestion data for a LoCoMo or LongMemEval run."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def main() -> int:
     parser.add_argument(
         "--env",
         required=True,
-        help="Dotenv path (shell sets via MEMEVAL_ENV_FILE)",
+        help="Dotenv path (shell sets via OMNIMEMEVAL_ENV_FILE)",
     )
     parser.add_argument("--version", required=True)
     parser.add_argument(

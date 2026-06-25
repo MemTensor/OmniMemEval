@@ -49,10 +49,10 @@ def resolve_max_batch_chars(frame: str, default: int = 0) -> int:
 def resolve_add_heartbeat_seconds(default: float = 30.0) -> float:
     """Resolve the heartbeat interval for long memory add calls.
 
-    Set ``MEMEVAL_ADD_HEARTBEAT_SECONDS=0`` to keep start/done logs but disable
+    Set ``OMNIMEMEVAL_ADD_HEARTBEAT_SECONDS=0`` to keep start/done logs but disable
     periodic heartbeat lines while a single client call is blocked.
     """
-    for key in ("MEMEVAL_ADD_HEARTBEAT_SECONDS", "ADD_HEARTBEAT_SECONDS"):
+    for key in ("OMNIMEMEVAL_ADD_HEARTBEAT_SECONDS", "ADD_HEARTBEAT_SECONDS"):
         value = os.getenv(key, "").strip()
         if not value:
             continue
@@ -104,7 +104,7 @@ class LongCallLogger:
             self._stop_event = threading.Event()
             self._thread = threading.Thread(
                 target=self._heartbeat_loop,
-                name="memeval-add-heartbeat",
+                name="omnimemeval-add-heartbeat",
                 daemon=True,
             )
             self._thread.start()

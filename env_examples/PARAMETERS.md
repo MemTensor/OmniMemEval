@@ -1,4 +1,4 @@
-# MemEval Parameter Reference
+# OmniMemEval Parameter Reference
 
 This file documents the public parameters used by the LoCoMo and LongMemEval
 pipelines. Product-specific templates live in this directory as `.env.<client>`.
@@ -9,7 +9,7 @@ pipelines. Product-specific templates live in this directory as `.env.<client>`.
 |-----------|---------|------------|-------------|
 | `--lib` | required | all | Memory adapter key from `client_factory.registry`. |
 | `--env` | required | all | Dotenv file with memory and LLM credentials. |
-| `--version` | `memeval_<date>` | all | Result directory suffix. |
+| `--version` | `omnimemeval_<date>` | all | Result directory suffix. |
 | `--from-step` | `1` | all | First pipeline step to execute. |
 | `--to-step` | final step | all | Last pipeline step to execute. |
 | `--replay` | unset | all | Existing result directory for recomputing later stages. |
@@ -47,10 +47,10 @@ LongMemEval streaming-only parameters:
 | `EVAL_BASE_URL` | required | Judge model endpoint. |
 | `LLM_MAX_RETRIES` | `3` | Global LLM retry count. |
 | `LLM_TIMEOUT_SECONDS` | `120` | Global LLM request timeout in seconds. |
-| `MEMEVAL_MEMORY_MAX_RETRIES` | `3` | HTTP memory client retry count. |
-| `MEMEVAL_MEMORY_SDK_MAX_RETRIES` | `3` | SDK memory client retry count. |
-| `MEMEVAL_NLTK_INDEX_URL` | unset | Optional NLTK index mirror. |
-| `MEMEVAL_NLTK_GITHUB_PROXY` | unset | Optional proxy prefix for NLTK GitHub downloads. |
+| `OMNIMEMEVAL_MEMORY_MAX_RETRIES` | `3` | HTTP memory client retry count. |
+| `OMNIMEMEVAL_MEMORY_SDK_MAX_RETRIES` | `3` | SDK memory client retry count. |
+| `OMNIMEMEVAL_NLTK_INDEX_URL` | unset | Optional NLTK index mirror. |
+| `OMNIMEMEVAL_NLTK_GITHUB_PROXY` | unset | Optional proxy prefix for NLTK GitHub downloads. |
 | `HF_ENDPOINT` | unset | Optional Hugging Face endpoint mirror. |
 | `DINGTALK_ACCESS_TOKEN` | unset | Optional DingTalk robot access token. |
 | `DINGTALK_SECRET` | unset | Optional DingTalk signing secret. |

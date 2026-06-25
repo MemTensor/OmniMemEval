@@ -118,7 +118,7 @@ class BackboardClient(BaseApiClient):
         if key in self._assistant_map:
             return self._assistant_map[key]
 
-        name = f"memeval_{key}"
+        name = f"omnimemeval_{key}"
         aid = self._find_assistant_by_name(name)
         if aid:
             self._assistant_map[key] = aid
@@ -447,7 +447,7 @@ class BackboardClient(BaseApiClient):
 
     def delete_user(self, user_id):
         key = self._conv_key(user_id)
-        name = f"memeval_{key}"
+        name = f"omnimemeval_{key}"
         assistant_id = self._assistant_map.pop(key, None) or self._find_assistant_by_name(name)
         if assistant_id:
             self._thread_map.pop(assistant_id, None)

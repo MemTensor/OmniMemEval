@@ -4,8 +4,8 @@ The default network endpoints are the official upstream services. Users in
 restricted networks can opt into mirrors through environment variables:
 
 * ``HF_ENDPOINT`` for Hugging Face model downloads.
-* ``MEMEVAL_NLTK_INDEX_URL`` for a custom NLTK index.xml.
-* ``MEMEVAL_NLTK_GITHUB_PROXY`` for proxying NLTK package URLs.
+* ``OMNIMEMEVAL_NLTK_INDEX_URL`` for a custom NLTK index.xml.
+* ``OMNIMEMEVAL_NLTK_GITHUB_PROXY`` for proxying NLTK package URLs.
 """
 
 import os
@@ -29,8 +29,8 @@ def _download_nltk_resource(name):
     """Download a single NLTK package using official or configured endpoints."""
     import nltk
 
-    index_url = os.environ.get("MEMEVAL_NLTK_INDEX_URL", "").strip()
-    github_proxy = os.environ.get("MEMEVAL_NLTK_GITHUB_PROXY", "").strip()
+    index_url = os.environ.get("OMNIMEMEVAL_NLTK_INDEX_URL", "").strip()
+    github_proxy = os.environ.get("OMNIMEMEVAL_NLTK_GITHUB_PROXY", "").strip()
 
     if not index_url and not github_proxy:
         nltk.download(name)

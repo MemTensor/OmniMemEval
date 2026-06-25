@@ -20,7 +20,7 @@ abstention-style behavior.
 | `longmemeval_m_cleaned.json` | ~2.6 GB | LongMemEval-M: ~500 sessions / ~1.5M tokens per question |
 
 Only `README.md` and `prepare_longmemeval.py` are intended to be
-version-controlled by MemEval. Downloaded JSON files are generated artifacts
+version-controlled by OmniMemEval. Downloaded JSON files are generated artifacts
 and should remain local.
 
 ## Dataset Statistics
@@ -65,7 +65,7 @@ The S and M versions share the same structure; M includes significantly more fil
 
 The JSON files are downloaded directly from Hugging Face
 [`xiaowu0162/longmemeval-cleaned`](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned).
-The default download is the S variant, matching MemEval's runner default.
+The default download is the S variant, matching OmniMemEval's runner default.
 
 ```bash
 python data/longmemeval/prepare_longmemeval.py                       # download S variant (~265 MB, used by default)
@@ -78,7 +78,7 @@ The script validates each downloaded JSON file before replacing the local copy.
 ## License And Redistribution
 
 `xiaowu0162/longmemeval-cleaned` is published on Hugging Face with the MIT
-license. The MemEval code license does not override the upstream LongMemEval
+license. The OmniMemEval code license does not override the upstream LongMemEval
 dataset license.
 
 ## Evaluation

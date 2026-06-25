@@ -24,7 +24,7 @@ Examples:
 
 Options:
   --lib <name>            Memory product key, e.g. hindsight, memos, zep, mem0, backboard.
-  --version <name>        Result version suffix. Default: memeval_{yyyymmdd}.
+  --version <name>        Result version suffix. Default: omnimemeval_{yyyymmdd}.
   --workers <n>           Worker count for memory API (ingestion/search). Default: 2.
   --llm-workers <n>      Max concurrent LLM API calls (response/eval). Default: 10.
   --top-k <n>           Search top-k. Default: 20.
@@ -102,13 +102,13 @@ if try_replay "$@"; then
     shift 2
 else
     LIB=""
-    VERSION="memeval_$(date +%Y%m%d)"
+    VERSION="omnimemeval_$(date +%Y%m%d)"
     WORKERS=2
     LLM_WORKERS=10
-    _env_llm_workers=$(grep -E '^LLM_WORKERS=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    _env_llm_workers=$(grep -E '^LLM_WORKERS=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
     [[ -n "$_env_llm_workers" ]] && LLM_WORKERS="$_env_llm_workers"
     TOPK="${TOPK:-20}"
-    _env_topk=$(grep -E '^TOPK=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    _env_topk=$(grep -E '^TOPK=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
     [[ -n "$_env_topk" ]] && TOPK="$_env_topk"
     NUM_RUNS=1
     SAVE_MODEL_INPUT=0
@@ -300,12 +300,12 @@ fi
 # Detect reflect-mode systems where step 3 is a no-op (answer comes from step 2)
 _REFLECT_MODE=false
 if [[ "$LIB" == "backboard" ]]; then
-    _bb_eval_mode=$(grep -E '^BACKBOARD_EVAL_MODE=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" | tr '[:upper:]' '[:lower:]')
+    _bb_eval_mode=$(grep -E '^BACKBOARD_EVAL_MODE=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" | tr '[:upper:]' '[:lower:]')
     if [[ "${_bb_eval_mode:-reflect}" == "reflect" ]]; then
         _REFLECT_MODE=true
     fi
 elif [[ "$LIB" == "hindsight" ]]; then
-    _hs_mode=$(grep -E '^HINDSIGHT_MODE=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" | tr '[:upper:]' '[:lower:]')
+    _hs_mode=$(grep -E '^HINDSIGHT_MODE=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" | tr '[:upper:]' '[:lower:]')
     if [[ "${_hs_mode}" == "reflect" ]]; then
         _REFLECT_MODE=true
     fi
@@ -343,7 +343,7 @@ pipeline_start 6
 if [[ "$STREAMING" == "1" ]]; then
     STREAM_ARGS=(
         --lib "$LIB"
-        --env "$MEMEVAL_ENV_FILE"
+        --env "$OMNIMEMEVAL_ENV_FILE"
         --version "$VERSION"
         --top-k "$TOPK"
         --allow-empty-search "$ALLOW_EMPTY_SEARCH"

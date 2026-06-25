@@ -34,7 +34,7 @@ class TestEnvConfigHelpers(unittest.TestCase):
     def setUp(self):
         self._old_env = os.environ.copy()
         for key in list(os.environ):
-            if key.startswith("MEMEVAL_TEST_") or key == "MAX_BATCH_CHARS":
+            if key.startswith("OMNIMEMEVAL_TEST_") or key == "MAX_BATCH_CHARS":
                 os.environ.pop(key)
 
     def tearDown(self):
@@ -42,69 +42,69 @@ class TestEnvConfigHelpers(unittest.TestCase):
         os.environ.update(self._old_env)
 
     def test_require_env_strips_and_rejects_blank_values(self):
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_KEY"):
-            require_env("MEMEVAL_TEST_KEY")
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_KEY"):
+            require_env("OMNIMEMEVAL_TEST_KEY")
 
-        os.environ["MEMEVAL_TEST_KEY"] = "  value  "
-        self.assertEqual(require_env("MEMEVAL_TEST_KEY"), "value")
+        os.environ["OMNIMEMEVAL_TEST_KEY"] = "  value  "
+        self.assertEqual(require_env("OMNIMEMEVAL_TEST_KEY"), "value")
 
-        os.environ["MEMEVAL_TEST_KEY"] = "  "
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_KEY"):
-            require_env("MEMEVAL_TEST_KEY")
+        os.environ["OMNIMEMEVAL_TEST_KEY"] = "  "
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_KEY"):
+            require_env("OMNIMEMEVAL_TEST_KEY")
 
     def test_env_bool_accepts_documented_values_and_rejects_invalid_values(self):
         for value in ("1", "true", "yes", "y", "on"):
             with self.subTest(value=value):
-                os.environ["MEMEVAL_TEST_BOOL"] = value
-                self.assertTrue(env_bool("MEMEVAL_TEST_BOOL"))
+                os.environ["OMNIMEMEVAL_TEST_BOOL"] = value
+                self.assertTrue(env_bool("OMNIMEMEVAL_TEST_BOOL"))
 
         for value in ("0", "false", "no", "n", "off"):
             with self.subTest(value=value):
-                os.environ["MEMEVAL_TEST_BOOL"] = value
-                self.assertFalse(env_bool("MEMEVAL_TEST_BOOL", True))
+                os.environ["OMNIMEMEVAL_TEST_BOOL"] = value
+                self.assertFalse(env_bool("OMNIMEMEVAL_TEST_BOOL", True))
 
-        os.environ["MEMEVAL_TEST_BOOL"] = "maybe"
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_BOOL"):
-            env_bool("MEMEVAL_TEST_BOOL")
+        os.environ["OMNIMEMEVAL_TEST_BOOL"] = "maybe"
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_BOOL"):
+            env_bool("OMNIMEMEVAL_TEST_BOOL")
 
     def test_env_numeric_helpers_validate_type_and_bounds(self):
-        os.environ["MEMEVAL_TEST_INT"] = "3"
-        os.environ["MEMEVAL_TEST_FLOAT"] = "0.25"
-        self.assertEqual(env_int("MEMEVAL_TEST_INT", min_value=1), 3)
-        self.assertEqual(env_float("MEMEVAL_TEST_FLOAT", min_value=0), 0.25)
+        os.environ["OMNIMEMEVAL_TEST_INT"] = "3"
+        os.environ["OMNIMEMEVAL_TEST_FLOAT"] = "0.25"
+        self.assertEqual(env_int("OMNIMEMEVAL_TEST_INT", min_value=1), 3)
+        self.assertEqual(env_float("OMNIMEMEVAL_TEST_FLOAT", min_value=0), 0.25)
 
-        os.environ["MEMEVAL_TEST_INT"] = "0"
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_INT"):
-            env_int("MEMEVAL_TEST_INT", min_value=1)
+        os.environ["OMNIMEMEVAL_TEST_INT"] = "0"
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_INT"):
+            env_int("OMNIMEMEVAL_TEST_INT", min_value=1)
 
-        os.environ["MEMEVAL_TEST_FLOAT"] = "bad"
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_FLOAT"):
-            env_float("MEMEVAL_TEST_FLOAT")
+        os.environ["OMNIMEMEVAL_TEST_FLOAT"] = "bad"
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_FLOAT"):
+            env_float("OMNIMEMEVAL_TEST_FLOAT")
 
     def test_env_csv_json_and_batch_char_fallback(self):
-        os.environ["MEMEVAL_TEST_CSV"] = " a, ,b ,, c "
-        self.assertEqual(env_csv("MEMEVAL_TEST_CSV"), ["a", "b", "c"])
+        os.environ["OMNIMEMEVAL_TEST_CSV"] = " a, ,b ,, c "
+        self.assertEqual(env_csv("OMNIMEMEVAL_TEST_CSV"), ["a", "b", "c"])
 
-        os.environ["MEMEVAL_TEST_JSON"] = '{"a": 1}'
-        self.assertEqual(env_json("MEMEVAL_TEST_JSON"), {"a": 1})
+        os.environ["OMNIMEMEVAL_TEST_JSON"] = '{"a": 1}'
+        self.assertEqual(env_json("OMNIMEMEVAL_TEST_JSON"), {"a": 1})
 
         os.environ["MAX_BATCH_CHARS"] = "100"
-        self.assertEqual(env_max_batch_chars("MEMEVAL_TEST_MAX_CHARS"), 100)
+        self.assertEqual(env_max_batch_chars("OMNIMEMEVAL_TEST_MAX_CHARS"), 100)
 
-        os.environ["MEMEVAL_TEST_MAX_CHARS"] = "50"
-        self.assertEqual(env_max_batch_chars("MEMEVAL_TEST_MAX_CHARS"), 50)
+        os.environ["OMNIMEMEVAL_TEST_MAX_CHARS"] = "50"
+        self.assertEqual(env_max_batch_chars("OMNIMEMEVAL_TEST_MAX_CHARS"), 50)
 
-        os.environ["MEMEVAL_TEST_MAX_CHARS"] = "-1"
-        with self.assertRaisesRegex(ValueError, "MEMEVAL_TEST_MAX_CHARS"):
-            env_max_batch_chars("MEMEVAL_TEST_MAX_CHARS")
+        os.environ["OMNIMEMEVAL_TEST_MAX_CHARS"] = "-1"
+        with self.assertRaisesRegex(ValueError, "OMNIMEMEVAL_TEST_MAX_CHARS"):
+            env_max_batch_chars("OMNIMEMEVAL_TEST_MAX_CHARS")
 
     def test_base_api_client_uses_configurable_memory_retry_count(self):
-        os.environ["MEMEVAL_MEMORY_MAX_RETRIES"] = "3"
+        os.environ["OMNIMEMEVAL_MEMORY_MAX_RETRIES"] = "3"
         client = BaseApiClient("https://example.test", headers={})
 
         self.assertEqual(client._max_retries, 3)
 
-        os.environ["MEMEVAL_MEMORY_SDK_MAX_RETRIES"] = "2"
+        os.environ["OMNIMEMEVAL_MEMORY_SDK_MAX_RETRIES"] = "2"
         calls = {"count": 0}
 
         def always_transient():

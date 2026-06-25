@@ -1,4 +1,4 @@
-"""Unit tests for MemEval core utility functions."""
+"""Unit tests for OmniMemEval core utility functions."""
 
 import json
 import os

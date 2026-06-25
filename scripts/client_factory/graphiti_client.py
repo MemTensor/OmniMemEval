@@ -12,7 +12,7 @@ from .base_client import (
 
 
 class GraphitiClient(BaseApiClient):
-    """Graphiti (getzep/graphiti) REST API client for MemEval.
+    """Graphiti (getzep/graphiti) REST API client for OmniMemEval.
 
     Reference: https://github.com/getzep/graphiti
     Endpoints:

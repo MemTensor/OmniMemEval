@@ -1,8 +1,8 @@
-# MemEval
+# OmniMemEval
 
 [中文版](./README_zh.md)
 
-MemEval is a standardized evaluation framework for memory system APIs. It is
+OmniMemEval is a standardized evaluation framework for memory system APIs. It is
 designed to support multiple memory benchmarks through a shared evaluation
 pipeline and a common adapter layer for mainstream memory backends. Users can
 switch memory backends with `--lib` and compare mainstream memory products,
@@ -17,7 +17,7 @@ Current benchmark coverage:
 
 ## Pipeline
 
-MemEval benchmark pipelines use the same staged flow:
+OmniMemEval benchmark pipelines use the same staged flow:
 
 ```text
 ┌──────────────────┐
@@ -76,8 +76,8 @@ runs can continue from the last completed step.
 ### 1. Create Environment
 
 ```bash
-conda create -n memeval python=3.12 -y
-conda activate memeval
+conda create -n omnimemeval python=3.12 -y
+conda activate omnimemeval
 pip install -r requirements.txt
 ```
 
@@ -124,7 +124,7 @@ Useful shared options:
 
 | Option | Purpose |
 |--------|---------|
-| `--version <name>` | Result directory suffix. Defaults to `memeval_<date>`. |
+| `--version <name>` | Result directory suffix. Defaults to `omnimemeval_<date>`. |
 | `--from-step N` / `--to-step N` | Run a subset of pipeline steps. |
 | `--replay <result_dir>` | Recompute later stages from an existing result directory. |
 | `--top-k N` | Search result count. Overrides `TOPK` from the env file. |
@@ -161,6 +161,14 @@ Replay later stages from an existing result directory:
 ./scripts/run_locomo_eval.sh --lib memos --env .env.memos --replay results/locomo/{LIB}-{VERSION}/
 ./scripts/run_lme_eval.sh --lib memos --env .env.memos --replay results/lme/{LIB}-{VERSION}/
 ```
+
+## Benchmark Results
+
+See [docs/benchmark-results.md](./docs/benchmark-results.md) for the public
+LoCoMo and LongMemEval result snapshot reproduced under OmniMemEval's shared
+evaluation setup. The document includes reproduced scores, context-token
+metrics, deployment notes, published reference scores, and reproduction
+commands.
 
 ## Supported Memory Backends
 
@@ -212,7 +220,7 @@ Replay later stages:
 <a id="longmemeval"></a>
 ### LongMemEval
 
-LongMemEval evaluates long-term memory across sessions. MemEval loads
+LongMemEval evaluates long-term memory across sessions. OmniMemEval loads
 `longmemeval_s_cleaned.json` through a shared loader that removes known bad
 special tokens and applies the same cleaned data to ingestion and search.
 
@@ -243,10 +251,12 @@ requires `--yes`.
 ## Project Layout
 
 ```text
-MemEval/
+OmniMemEval/
 ├── data/
 │   ├── locomo/
 │   └── longmemeval/
+├── docs/
+│   └── benchmark-results.md
 ├── env_examples/
 ├── scripts/
 │   ├── client_factory/
@@ -267,12 +277,12 @@ MemEval/
 
 ```bash
 bash -n scripts/_experiment_utils.sh scripts/run_locomo_eval.sh scripts/run_lme_eval.sh scripts/run_memory_clear.sh
-conda run -n memeval python -m compileall -q scripts
-conda run -n memeval python -m unittest discover -s scripts/tests -p 'test_*.py'
+conda run -n omnimemeval python -m compileall -q scripts
+conda run -n omnimemeval python -m unittest discover -s scripts/tests -p 'test_*.py'
 ```
 
 ## License
 
 See [LICENSE](./LICENSE). Third-party benchmark data keeps its upstream license;
-the MemEval code license does not relicense external datasets. See
+the OmniMemEval code license does not relicense external datasets. See
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

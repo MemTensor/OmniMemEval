@@ -80,7 +80,7 @@ class SupermemoryClient(BaseApiClient):
         else:
             content = f"Here is the session as a stringified JSON:\n{session_str}"
 
-        metadata = {"source": "memeval", "user_id": user_id}
+        metadata = {"source": "omnimemeval", "user_id": user_id}
         if session_id:
             metadata["sessionId"] = session_id
         if session_date:

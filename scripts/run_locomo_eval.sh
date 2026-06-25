@@ -22,7 +22,7 @@ Examples:
 
 Options:
   --lib <name>            Memory product key, e.g. mem0, zep, supermemory.
-  --version <name>        Result version suffix. Default: memeval_{yyyymmdd}.
+  --version <name>        Result version suffix. Default: omnimemeval_{yyyymmdd}.
   --workers <n>           Worker count for memory API (ingestion/search). Default: 2.
   --llm-workers <n>      Max concurrent LLM API calls (response/eval). Default: 10.
   --top-k <n>           Search top-k. Default: 20.
@@ -69,13 +69,13 @@ if try_replay "$@"; then
     shift 2
 else
     LIB=""
-    VERSION="memeval_$(date +%Y%m%d)"
+    VERSION="omnimemeval_$(date +%Y%m%d)"
     WORKERS=2
     LLM_WORKERS=10
-    _env_llm_workers=$(grep -E '^LLM_WORKERS=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    _env_llm_workers=$(grep -E '^LLM_WORKERS=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
     [[ -n "$_env_llm_workers" ]] && LLM_WORKERS="$_env_llm_workers"
     TOPK="${TOPK:-20}"
-    _env_topk=$(grep -E '^TOPK=' "$MEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    _env_topk=$(grep -E '^TOPK=' "$OMNIMEMEVAL_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'" || true)
     [[ -n "$_env_topk" ]] && TOPK="$_env_topk"
     NUM_RUNS=1
     SAVE_MODEL_INPUT=0

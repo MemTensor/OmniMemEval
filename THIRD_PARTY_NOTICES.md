@@ -1,14 +1,14 @@
 # Third-Party Notices
 
-MemEval code is licensed under the repository [LICENSE](./LICENSE). Benchmark
-datasets keep their upstream licenses. The MemEval code license does not
+OmniMemEval code is licensed under the repository [LICENSE](./LICENSE). Benchmark
+datasets keep their upstream licenses. The OmniMemEval code license does not
 relicense external datasets.
 
 ## LoCoMo
 
 - Source: https://github.com/snap-research/locomo
 - Paper: https://arxiv.org/abs/2402.17753
-- Data file used by MemEval: `data/locomo/locomo10.json`
+- Data file used by OmniMemEval: `data/locomo/locomo10.json`
 - License: Creative Commons Attribution-NonCommercial 4.0 International
   (CC BY-NC 4.0)
 - Notes: the data file is not committed to this repository. Run

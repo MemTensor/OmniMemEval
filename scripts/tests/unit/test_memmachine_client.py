@@ -63,9 +63,9 @@ class TestMemMachineConfig(unittest.TestCase):
 
         self.assertEqual(
             client._producer_filter(
-                "hm_exp_user_memeval_20260516_2f1f897e-d67f-dbc5"
+                "hm_exp_user_omnimemeval_20260516_2f1f897e-d67f-dbc5"
             ),
-            "metadata.producer='hm_exp_user_memeval_20260516_2f1f897e-d67f-dbc5'",
+            "metadata.producer='hm_exp_user_omnimemeval_20260516_2f1f897e-d67f-dbc5'",
         )
 
     def test_cloud_quotes_uuid_filter_value(self):

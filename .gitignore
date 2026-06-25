@@ -46,3 +46,5 @@ WORK_LOG*.md
 OSS_NORMALIZATION_WORK_LOG.md
 AGENTS.md
 docs/
+!docs/
+!docs/benchmark-results.md

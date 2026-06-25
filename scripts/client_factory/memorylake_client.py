@@ -52,7 +52,7 @@ class MemoryLakeClient(BaseApiClient):
         qps = env_float("MEMORYLAKE_QPS", 1, min_value=0)
 
         self._configured_project_id = env_str("MEMORYLAKE_PROJECT_ID", "")
-        self._project_name = env_str("MEMORYLAKE_PROJECT_NAME", "memeval")
+        self._project_name = env_str("MEMORYLAKE_PROJECT_NAME", "omnimemeval")
         self._infer = env_bool("MEMORYLAKE_INFER", True)
         self._search_threshold = env_float(
             "MEMORYLAKE_SEARCH_THRESHOLD", None, min_value=0
@@ -103,7 +103,7 @@ class MemoryLakeClient(BaseApiClient):
                     return item["id"]
         payload = {
             "name": self._project_name,
-            "description": "MemEval evaluation project (auto-created)",
+            "description": "OmniMemEval evaluation project (auto-created)",
         }
         resp = self._post("/api/v1/projects", json=payload)
         resp.raise_for_status()

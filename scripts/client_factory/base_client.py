@@ -333,7 +333,7 @@ class BaseApiClient:
         self._limiter = _TokenBucketLimiter(qps) if qps else None
         self._timeout = timeout or self.DEFAULT_TIMEOUT
         self._max_retries = env_int(
-            "MEMEVAL_MEMORY_MAX_RETRIES",
+            "OMNIMEMEVAL_MEMORY_MAX_RETRIES",
             self.DEFAULT_MAX_RETRIES,
             min_value=1,
         )
@@ -415,12 +415,12 @@ class BaseApiClient:
         """
         if max_retries is None:
             default_retries = env_int(
-                "MEMEVAL_MEMORY_MAX_RETRIES",
+                "OMNIMEMEVAL_MEMORY_MAX_RETRIES",
                 BaseApiClient.DEFAULT_MAX_RETRIES,
                 min_value=1,
             )
             max_retries = env_int(
-                "MEMEVAL_MEMORY_SDK_MAX_RETRIES",
+                "OMNIMEMEVAL_MEMORY_SDK_MAX_RETRIES",
                 default_retries,
                 min_value=1,
             )
