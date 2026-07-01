@@ -42,5 +42,3 @@ Evaluation judge model: qwen3.6-flash in thinking mode.
 | **mem9**<br>**(Cloud service)** | 12.31 | 31.6 | 54.33 | 5880.9 | 30.77 | 59.1 | 64.1 | 8.23 | 47.7 | 15.8 |
 | **Memori**<br>**(Cloud service)** | 16.92 | 36.3 | 52 | 6189.2 | 34.62 | 43.1 | 51.28 | 9.3 | 37.93 | 15.8 |
 | **MemOS** | **23.85*** | 43.3 | **61*** | 5164.2 | **38.46*** | 49.55 | <u>64.96</u> | 9.43 | **62.07*** | 23.93 |
-
-PS: Results are averaged over three runs. An asterisk (*) marks the best result, and an underlined value marks the second-best result.
