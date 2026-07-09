@@ -22,6 +22,7 @@ class SessionSpec:
     source_ref: str
     metadata: dict[str, Any] = field(default_factory=dict)
     agent_session_ref: str | None = None
+    agent_session_metadata: dict[str, Any] = field(default_factory=dict)
     openclaw_session_key: str | None = None
     openclaw_gateway_session_id: str | None = None
 
@@ -32,6 +33,8 @@ class SessionSpec:
             "source_ref": self.source_ref,
             "metadata": self.metadata,
         }
+        if self.agent_session_metadata:
+            data["agent_session_metadata"] = self.agent_session_metadata
         for key in (
             "agent_session_ref",
             "openclaw_session_key",
@@ -66,4 +69,3 @@ def make_base_session_id(
 ) -> str:
     raw = f"{prefix}-{phase}-{domain}-{split}-{task_name}-t{trial}-{uuid.uuid4().hex[:6]}"
     return sanitize_session_id(raw)
-

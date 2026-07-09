@@ -1,0 +1,53 @@
+# Hermes AgentBench config.
+#
+# Hermes global defaults are read from ~/.hermes/config.yaml first. Values here
+# override or extend those defaults for AgentBench runs.
+
+agent:
+  profile: hermes
+  name: hermes
+  command: hermes
+
+  # Optional model route. Configure LLM_BASE_URL/LLM_API_KEY in .env.agent or
+  # pass --env <file>. If omitted, Hermes uses ~/.hermes/config.yaml.
+  model: qwen3.6-flash
+  provider: custom
+  providers:
+    custom:
+      apiKey: ${LLM_API_KEY}
+      apiBase: ${LLM_BASE_URL}
+      extraBody:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  # Benchmark-local Hermes memory overrides. The configured memory provider is
+  # still inherited from ~/.hermes/config.yaml unless explicitly overridden.
+  memory:
+    memory_enabled: false
+    user_profile_enabled: false
+
+  # Optional generation settings mapped into Hermes config.
+  reasoningEffort: none
+  # maxTokens: 8192
+
+  runtime:
+    # isolated_copy creates a temporary HERMES_HOME per task and copies config.
+    home_mode: isolated_copy
+
+    # Link selected global ~/.hermes paths into each temporary HERMES_HOME.
+    # Useful for providers that store durable state under HERMES_HOME.
+    home_links: []
+    # Example:
+    #   - memos-plugin
+
+  # Optional env vars injected into the Hermes subprocess.
+  # env:
+  #   MY_MEMORY_PLUGIN_KEY: ${MY_MEMORY_PLUGIN_KEY}
+
+  # Optional prompt prefix, for plugins that use a trigger phrase.
+  # prompt_prefix:
+  #   train: "new task:"
+  #   test: "new task:"
+
+  session:
+    expose_context_env: OMNIMEMEVAL_AGENT_CONTEXT

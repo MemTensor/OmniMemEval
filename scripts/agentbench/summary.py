@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,145 @@ def _load_result(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _text_from_openclaw_message(msg: dict[str, Any]) -> str:
+    text_parts = []
+    for item in msg.get("content", []):
+        if isinstance(item, dict) and item.get("type") == "text" and item.get("text"):
+            text_parts.append(item["text"])
+    return "\n".join(text_parts)
+
+
+def _is_internal_context_compaction(text: str) -> bool:
+    prefix = text.lstrip()[:512].upper()
+    return "CONTEXT COMPACTION" in prefix and "REFERENCE ONLY" in prefix
+
+
+def _final_answer_from_session(trial_dir: Path) -> str:
+    session_file = trial_dir / "session.jsonl"
+    if not session_file.exists():
+        return ""
+
+    final_text = ""
+    try:
+        with session_file.open() as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if rec.get("type") == "message":
+                    msg = rec.get("message", {})
+                    if msg.get("role") != "assistant":
+                        continue
+                    text = _text_from_openclaw_message(msg)
+                    if text and not _is_internal_context_compaction(text):
+                        final_text = text
+                    continue
+
+                if rec.get("role") != "assistant":
+                    continue
+                if rec.get("tool_calls"):
+                    continue
+                content = rec.get("content")
+                if isinstance(content, str) and content and not _is_internal_context_compaction(content):
+                    final_text = content
+    except OSError:
+        return ""
+
+    return final_text
+
+
+def _all_assistant_text_from_session(
+    trial_dir: Path,
+    *,
+    include_reasoning_content: bool = False,
+) -> str:
+    session_file = trial_dir / "session.jsonl"
+    if not session_file.exists():
+        return ""
+
+    text_parts = []
+    try:
+        with session_file.open() as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if rec.get("type") == "message":
+                    msg = rec.get("message", {})
+                    if msg.get("role") != "assistant":
+                        continue
+                    text = _text_from_openclaw_message(msg)
+                    if text and not _is_internal_context_compaction(text):
+                        text_parts.append(text)
+                    continue
+
+                if rec.get("role") != "assistant":
+                    continue
+                reasoning = rec.get("reasoning_content")
+                if (
+                    include_reasoning_content
+                    and isinstance(reasoning, str)
+                    and reasoning
+                    and not _is_internal_context_compaction(reasoning)
+                ):
+                    text_parts.append(reasoning)
+                content = rec.get("content")
+                if isinstance(content, str) and content and not _is_internal_context_compaction(content):
+                    text_parts.append(content)
+    except OSError:
+        return ""
+
+    return "\n".join(text_parts)
+
+
+def response_text_for_char_stats(result: dict[str, Any], trial_dir: Path) -> str:
+    """Return assistant-generated text using the EvoAgentBench char-stat policy."""
+    response = result.get("agent_result", {}).get("response", "") or ""
+    agent = result.get("agent")
+    if agent in {"openclaw", "hermes", "hermes-agent"}:
+        session_text = _all_assistant_text_from_session(
+            trial_dir,
+            include_reasoning_content=agent in {"hermes", "hermes-agent"},
+        )
+        if session_text:
+            return session_text
+        return response
+
+    session_text = _final_answer_from_session(trial_dir)
+    if session_text:
+        return session_text
+    return response
+
+
+def _char_summary(values: list[int], passed: list[bool]) -> dict[str, Any]:
+    if not values:
+        return {
+            "avg": 0.0,
+            "median": 0.0,
+            "pass_avg": 0.0,
+            "fail_avg": 0.0,
+            "empty": 0,
+        }
+
+    pass_values = [value for value, ok in zip(values, passed) if ok]
+    fail_values = [value for value, ok in zip(values, passed) if not ok]
+
+    def avg(items: list[int]) -> float:
+        return round(sum(items) / len(items), 1) if items else 0.0
+
+    return {
+        "avg": avg(values),
+        "median": round(float(statistics.median(values)), 1),
+        "pass_avg": avg(pass_values),
+        "fail_avg": avg(fail_values),
+        "empty": sum(1 for value in values if value == 0),
+    }
+
+
 def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = None, domain=None) -> dict:
     pass_at = pass_at or trials
     if pass_at < 1:
@@ -92,10 +232,13 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
         verifier_result = result.get("verifier_result", {})
         reward = verifier_result.get("reward", 0.0)
         token_usage = result.get("token_usage", {})
+        agent_result = result.get("agent_result", {})
+        response_chars = len(response_text_for_char_stats(result, result_file.parent))
         item = {
             "trial": int(result.get("trial") or 1),
             "reward": reward,
-            "elapsed": result.get("agent_result", {}).get("elapsed_sec", 0.0),
+            "elapsed": agent_result.get("elapsed_sec", 0.0),
+            "response_chars": response_chars,
             "turns": token_usage.get("turns", 0),
             "input_tokens": token_usage.get("input", 0),
             "output_tokens": token_usage.get("output", 0),
@@ -122,6 +265,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
             "avg_pass_rate": round(passed / len(results), 4) if results else 0.0,
             "avg_reward": round(sum(item["reward"] for item in results) / len(results), 4),
             "avg_elapsed_sec": round(sum(item["elapsed"] for item in results) / len(results), 1),
+            "avg_chars": round(sum(item["response_chars"] for item in results) / len(results), 1),
             "avg_tokens": round(sum(item["total_tokens"] for item in results) / len(results)),
             "trial_results": [
                 {
@@ -129,6 +273,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
                     "reward": item["reward"],
                     "passed": item["reward"] > threshold,
                     "elapsed_sec": item["elapsed"],
+                    "chars": item["response_chars"],
                     "tokens": item["total_tokens"],
                     "failure_class": item["failure_class"],
                 }
@@ -157,6 +302,8 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
     failure_counts = {}
     for item in all_results:
         failure_counts[item["failure_class"]] = failure_counts.get(item["failure_class"], 0) + 1
+    response_chars = [item["response_chars"] for item in all_results]
+    response_passed = [item["reward"] > threshold for item in all_results]
 
     trial_results = {}
     for trial_num, results in sorted(trial_buckets.items()):
@@ -168,6 +315,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
             "pass_rate": round(passed / total, 4) if total else 0.0,
             "avg_reward": round(sum(item["reward"] for item in results) / total, 4) if total else 0.0,
             "avg_elapsed_sec": round(sum(item["elapsed"] for item in results) / total, 1) if total else 0.0,
+            "avg_chars": round(sum(item["response_chars"] for item in results) / total, 1) if total else 0.0,
             "avg_tokens": round(sum(item["total_tokens"] for item in results) / total) if total else 0,
         }
 
@@ -194,6 +342,9 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
             "avg_elapsed_sec": round(
                 sum(item["elapsed"] for item in all_results) / total_trials, 1
             ) if total_trials else 0.0,
+            "avg_chars": round(
+                sum(item["response_chars"] for item in all_results) / total_trials, 1
+            ) if total_trials else 0.0,
             "avg_tokens": round(
                 sum(item["total_tokens"] for item in all_results) / total_trials
             ) if total_trials else 0,
@@ -204,9 +355,13 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
         "avg_turns": round(
             sum(item["turns"] for item in all_results) / total_trials, 1
         ) if total_trials else 0.0,
+        "avg_chars": round(
+            sum(item["response_chars"] for item in all_results) / total_trials, 1
+        ) if total_trials else 0.0,
         "avg_tokens": round(
             sum(item["total_tokens"] for item in all_results) / total_trials
         ) if total_trials else 0,
+        "response_chars": _char_summary(response_chars, response_passed),
         "failure_counts": failure_counts,
         "infra_excluded": {
             "tasks": len(infra_task_values),
@@ -239,6 +394,7 @@ def write_phase_report(path: Path, summary: dict) -> None:
         f"- Pass@1 stderr: {summary.get('pass@1_stderr', 0.0):.4f}",
         f"- Average pass rate: {summary.get('avg_pass_rate', 0.0):.4f}",
         f"- Average elapsed seconds: {summary.get('avg_elapsed_sec', 0.0)}",
+        f"- Average chars: {summary.get('avg_chars', 0)}",
         f"- Average tokens: {summary.get('avg_tokens', 0)}",
         "",
         "## Failure Counts",
@@ -264,14 +420,15 @@ def write_phase_report(path: Path, summary: dict) -> None:
             "",
             "## Per Trial",
             "",
-            "| Trial | Tasks | Passed | Pass Rate | Avg Reward | Avg Elapsed Sec | Avg Tokens |",
-            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Trial | Tasks | Passed | Pass Rate | Avg Reward | Avg Elapsed Sec | Avg Chars | Avg Tokens |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ])
         for trial, item in sorted(trial_results.items(), key=lambda pair: int(pair[0])):
             lines.append(
                 f"| {trial} | {item.get('tasks', 0)} | {item.get('passed', 0)} | "
                 f"{item.get('pass_rate', 0.0):.4f} | {item.get('avg_reward', 0.0):.4f} | "
-                f"{item.get('avg_elapsed_sec', 0.0)} | {item.get('avg_tokens', 0)} |"
+                f"{item.get('avg_elapsed_sec', 0.0)} | {item.get('avg_chars', 0)} | "
+                f"{item.get('avg_tokens', 0)} |"
             )
 
     per_task = summary.get("per_task") or {}
@@ -280,15 +437,15 @@ def write_phase_report(path: Path, summary: dict) -> None:
             "",
             "## Per Task",
             "",
-            "| Task | Trials | Passed | Pass@1 | Avg Pass Rate | Avg Reward | Avg Elapsed Sec |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Task | Trials | Passed | Pass@1 | Avg Pass Rate | Avg Reward | Avg Elapsed Sec | Avg Chars |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ])
         for task, item in sorted(per_task.items()):
             lines.append(
                 f"| `{task}` | {item.get('trials', 0)} | {item.get('passed', 0)} | "
                 f"{item.get('pass@1', 0.0):.4f} | {item.get('avg_pass_rate', 0.0):.4f} | "
                 f"{item.get('avg_reward', 0.0):.4f} | "
-                f"{item.get('avg_elapsed_sec', 0.0)} |"
+                f"{item.get('avg_elapsed_sec', 0.0)} | {item.get('avg_chars', 0)} |"
             )
 
     path.write_text("\n".join(lines) + "\n")

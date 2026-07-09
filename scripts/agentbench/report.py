@@ -55,6 +55,15 @@ def _avg_tokens(summary: dict[str, Any]) -> int:
     return int(value or 0)
 
 
+def _avg_chars(summary: dict[str, Any]) -> float:
+    value = summary.get("response_chars")
+    if isinstance(value, dict):
+        value = value.get("avg")
+    if value is None:
+        value = summary.get("avg_chars", 0.0)
+    return float(value or 0.0)
+
+
 def _domain_report(summary_path: Path, domain: str) -> dict[str, Any]:
     summary = _read_json(summary_path)
     run_dir = summary_path.parents[1]
@@ -77,6 +86,7 @@ def _domain_report(summary_path: Path, domain: str) -> dict[str, Any]:
         "avg_reward": float(summary.get("averages", {}).get("avg_reward", 0.0) or 0.0),
         "avg_turns": avg_turns,
         "avg_elapsed_sec": float(summary.get("avg_elapsed_sec", 0.0) or 0.0),
+        "avg_chars": _avg_chars(summary),
         "avg_tokens": _avg_tokens(summary),
         "failure_breakdown": summary.get("failure_counts", summary.get("failure_breakdown", {})),
         "domain_metrics": summary.get("domain_metrics", {}),
@@ -89,6 +99,7 @@ def _domain_report(summary_path: Path, domain: str) -> dict[str, Any]:
         "average_reward": round(run["avg_reward"], 4),
         "average_turns": round(avg_turns, 2),
         "average_elapsed_sec": round(run["avg_elapsed_sec"], 1),
+        "average_chars": round(run["avg_chars"], 1),
         "average_tokens": run["avg_tokens"],
         "tasks": run["tasks"],
         "total_trials": run["total_trials"],
@@ -105,8 +116,8 @@ def _write_markdown(path: Path, report: dict[str, Any]) -> None:
         f"- Runs per domain: `{report['runs']}`",
         f"- Parallel: `{report['parallel']}`",
         "",
-        "| Domain | Pass@1 | Avg Pass Rate | Avg Reward | Avg Turns | Avg Elapsed Sec | Avg Tokens | Tasks | Run Dir |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Domain | Pass@1 | Avg Pass Rate | Avg Reward | Avg Turns | Avg Elapsed Sec | Avg Chars | Avg Tokens | Tasks | Run Dir |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for domain, item in report["domains"].items():
         run = item["runs"][0]
@@ -114,7 +125,8 @@ def _write_markdown(path: Path, report: dict[str, Any]) -> None:
             f"| `{domain}` | {item['average_pass_at_1'] * 100:.1f}% | "
             f"{item['average_pass_rate'] * 100:.1f}% | {item['average_reward']:.4f} | "
             f"{item['average_turns']:.2f} | {item['average_elapsed_sec']:.1f} | "
-            f"{item['average_tokens']} | {item['tasks']} | `{run['run_dir']}` |"
+            f"{item['average_chars']:.1f} | {item['average_tokens']} | {item['tasks']} | "
+            f"`{run['run_dir']}` |"
         )
 
     overall = report.get("overall") or {}
@@ -123,6 +135,7 @@ def _write_markdown(path: Path, report: dict[str, Any]) -> None:
         "## Overall",
         "",
         f"- Average pass@1: {overall.get('average_pass_at_1', 0.0) * 100:.1f}%",
+        f"- Average chars: {overall.get('average_chars', 0.0):.1f}",
         f"- Total tasks: {overall.get('tasks', 0)}",
         f"- Total trials: {overall.get('total_trials', 0)}",
     ])
@@ -154,6 +167,7 @@ def generate_all_domains_report(
     task_values = [item["tasks"] for item in domain_reports.values()]
     trial_values = [item["total_trials"] for item in domain_reports.values()]
     token_values = [item["average_tokens"] for item in domain_reports.values()]
+    char_values = [item["average_chars"] for item in domain_reports.values()]
     elapsed_values = [item["average_elapsed_sec"] for item in domain_reports.values()]
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -169,6 +183,7 @@ def generate_all_domains_report(
             "average_pass_at_1": _mean(pass_values),
             "tasks": sum(task_values),
             "total_trials": sum(trial_values),
+            "average_chars": _mean(char_values, digits=1),
             "average_tokens": round(statistics.mean(token_values)) if token_values else 0,
             "average_elapsed_sec": _mean(elapsed_values, digits=1),
         },

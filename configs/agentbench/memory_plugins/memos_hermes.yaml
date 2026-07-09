@@ -1,0 +1,230 @@
+plugin: memos_hermes
+backup_dir: ~/memos-backups
+backup_file_template: "@backup_dir@/memos-hermes-train-feedback-@domain@-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
+
+feedback:
+  enabled: true
+  timeout: 300
+  structured_submit: false
+  backend: none
+  memos_structured_submit: false
+
+home_links:
+  - memos-plugin
+
+env:
+  HERMES_HOME: "$HOME/.hermes"
+  MEMOS_PLUGIN_HOME: "$HOME/.hermes/memos-plugin"
+  MEMOS_DB: "$HOME/.hermes/memos-plugin/data/memos.db"
+  MEMOS_FINALIZE_TIMEOUT: "1800"
+  MEMOS_FINALIZE_IDLE_SECONDS: "30"
+  MEMOS_NO_ACTIVITY_GRACE_SECONDS: "60"
+  MEMOS_DAEMON_TERM_TIMEOUT: "300"
+  MEMOS_DAEMON_START_WAIT_SECONDS: "5"
+  MEMOS_CLEAR_SETTLE_SECONDS: "5"
+
+commands:
+  validate: |
+    bash <<'BASH'
+    set -euo pipefail
+    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HOME/.hermes/memos-plugin}"
+    test -d "$MEMOS_PLUGIN_HOME"
+    test -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs"
+    command -v node >/dev/null
+    command -v tar >/dev/null
+    BASH
+
+  clear: |
+    bash <<'BASH'
+    set -euo pipefail
+    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
+    MEMOS_DAEMON_TERM_TIMEOUT="${MEMOS_DAEMON_TERM_TIMEOUT:-300}"
+    MEMOS_DAEMON_START_WAIT_SECONDS="${MEMOS_DAEMON_START_WAIT_SECONDS:-5}"
+    MEMOS_CLEAR_SETTLE_SECONDS="${MEMOS_CLEAR_SETTLE_SECONDS:-5}"
+
+    require_memos_plugin() {
+      test -d "$MEMOS_PLUGIN_HOME"
+      test -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs"
+    }
+
+    memos_pids() {
+      {
+        pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true
+        pgrep -f "memos-plugin/dist/bridge.cjs --agent=hermes" 2>/dev/null || true
+      } | awk 'NF && !seen[$0]++'
+    }
+
+    stop_memos_plugin() {
+      local pids
+      pids="$(memos_pids)"
+      [ -z "$pids" ] && return 0
+      while read -r pid; do
+        [ -z "$pid" ] && continue
+        [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
+      done <<<"$pids"
+      for _ in $(seq 1 "$MEMOS_DAEMON_TERM_TIMEOUT"); do
+        [ -z "$(memos_pids)" ] && return 0
+        sleep 1
+      done
+      while read -r pid; do
+        [ -z "$pid" ] && continue
+        [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -KILL "$pid" 2>/dev/null || true
+      done <<<"$(memos_pids)"
+    }
+
+    start_memos_daemon() {
+      if pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes --daemon" >/dev/null 2>&1; then
+        return 0
+      fi
+      mkdir -p "$MEMOS_PLUGIN_HOME/logs" "$MEMOS_PLUGIN_HOME/daemon"
+      (
+        cd "$MEMOS_PLUGIN_HOME"
+        nohup node "$MEMOS_PLUGIN_HOME/dist/bridge.cjs" --agent=hermes --daemon \
+          >>"$MEMOS_PLUGIN_HOME/logs/daemon-start.log" 2>&1 &
+        echo "$!" >"$MEMOS_PLUGIN_HOME/daemon/bridge.pid"
+      )
+      sleep "$MEMOS_DAEMON_START_WAIT_SECONDS"
+    }
+
+    require_memos_plugin
+    stop_memos_plugin
+    rm -rf "$MEMOS_PLUGIN_HOME/data"
+    mkdir -p "$MEMOS_PLUGIN_HOME/data"
+    rm -f "$MEMOS_PLUGIN_HOME/memos-local/.session" \
+          "$MEMOS_PLUGIN_HOME/bridge-status.json" \
+          "$MEMOS_PLUGIN_HOME/daemon/headless-bridges.json"
+    start_memos_daemon
+    sleep "$MEMOS_CLEAR_SETTLE_SECONDS"
+    BASH
+
+  wait_settle: |
+    bash <<'BASH'
+    set -euo pipefail
+    MEMOS_DB="${MEMOS_DB:-$HOME/.hermes/memos-plugin/data/memos.db}"
+    MEMOS_FINALIZE_TIMEOUT="${MEMOS_FINALIZE_TIMEOUT:-1800}"
+    MEMOS_FINALIZE_IDLE_SECONDS="${MEMOS_FINALIZE_IDLE_SECONDS:-30}"
+    MEMOS_NO_ACTIVITY_GRACE_SECONDS="${MEMOS_NO_ACTIVITY_GRACE_SECONDS:-60}"
+
+    if [ ! -f "$MEMOS_DB" ]; then
+      echo "No Hermes memos database found before backup; skipping finalize wait."
+      exit 0
+    fi
+    if ! command -v sqlite3 >/dev/null 2>&1; then
+      echo "sqlite3 not found; cannot inspect memos pipeline before backup."
+      exit 0
+    fi
+
+    sqlite_scalar() {
+      sqlite3 -cmd ".timeout 30000" "$MEMOS_DB" "$1" 2>/dev/null || echo 0
+    }
+
+    latest_pipeline_ms() {
+      sqlite_scalar "
+        SELECT COALESCE(MAX(called_at), 0)
+        FROM api_logs
+        WHERE
+          (
+            tool_name = 'memory_add'
+            AND (
+              output_json LIKE '%\"phase\":\"reflect\"%'
+              OR output_json LIKE '%phase=reflect%'
+            )
+          )
+          OR (
+            tool_name = 'system_model_status'
+            AND (
+              input_json LIKE '%\"phase\":\"reflect\"%'
+              OR input_json LIKE '%\"phase\":\"reward\"%'
+              OR input_json LIKE '%\"phase\":\"l2\"%'
+              OR input_json LIKE '%\"phase\":\"l3\"%'
+              OR input_json LIKE '%\"phase\":\"skill\"%'
+              OR output_json LIKE '%\"phase\":\"reflect\"%'
+              OR output_json LIKE '%\"phase\":\"reward\"%'
+              OR output_json LIKE '%\"phase\":\"l2\"%'
+              OR output_json LIKE '%\"phase\":\"l3\"%'
+              OR output_json LIKE '%\"phase\":\"skill\"%'
+            )
+          );
+      "
+    }
+
+    deadline=$((SECONDS + MEMOS_FINALIZE_TIMEOUT))
+    latest_seen=0
+    stable_since=$SECONDS
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      latest_ms="$(latest_pipeline_ms)"
+      latest_ms="${latest_ms:-0}"
+      if [ "$latest_ms" != "$latest_seen" ]; then
+        latest_seen="$latest_ms"
+        stable_since=$SECONDS
+      fi
+      if [ "$latest_seen" != "0" ] && [ $((SECONDS - stable_since)) -ge "$MEMOS_FINALIZE_IDLE_SECONDS" ]; then
+        exit 0
+      fi
+      if [ "$latest_seen" = "0" ] && [ $((SECONDS - stable_since)) -ge "$MEMOS_NO_ACTIVITY_GRACE_SECONDS" ]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "Hermes memos pipeline did not become idle before timeout." >&2
+    exit 1
+    BASH
+
+  backup: |
+    bash <<'BASH'
+    set -euo pipefail
+    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
+    MEMOS_DB="${MEMOS_DB:-$MEMOS_PLUGIN_HOME/data/memos.db}"
+    paths=()
+
+    test -d "$MEMOS_PLUGIN_HOME"
+    if [ -f "$MEMOS_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+      sqlite3 "$MEMOS_DB" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null || true
+    fi
+    pids="$(pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true)"
+    for pid in $pids; do
+      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
+    done
+    sleep 1
+
+    [ -d "$MEMOS_PLUGIN_HOME/data" ] && paths+=("memos-plugin/data")
+    [ -f "$MEMOS_PLUGIN_HOME/config.yaml" ] && paths+=("memos-plugin/config.yaml")
+    [ -f "$MEMOS_PLUGIN_HOME/.auth.json" ] && paths+=("memos-plugin/.auth.json")
+    [ -d "$MEMOS_PLUGIN_HOME/memos-local" ] && paths+=("memos-plugin/memos-local")
+    [ -f "$MEMOS_PLUGIN_HOME/bridge-status.json" ] && paths+=("memos-plugin/bridge-status.json")
+    if [ "${#paths[@]}" -eq 0 ]; then
+      echo "No Hermes memos paths found to back up." >&2
+      exit 1
+    fi
+    mkdir -p "$(dirname "@backup_file@")"
+    tar -czf "@backup_file@" -C "$HERMES_HOME" "${paths[@]}"
+    BASH
+
+  restore: |
+    bash <<'BASH'
+    set -euo pipefail
+    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
+    MEMOS_DAEMON_START_WAIT_SECONDS="${MEMOS_DAEMON_START_WAIT_SECONDS:-5}"
+    test -f "@backup_file@"
+    test -d "$MEMOS_PLUGIN_HOME"
+
+    pids="$(pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true)"
+    for pid in $pids; do
+      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
+    done
+    sleep 1
+    rm -rf "$MEMOS_PLUGIN_HOME/data"
+    tar -xzf "@backup_file@" -C "$HERMES_HOME"
+    mkdir -p "$MEMOS_PLUGIN_HOME/logs" "$MEMOS_PLUGIN_HOME/daemon"
+    (
+      cd "$MEMOS_PLUGIN_HOME"
+      nohup node "$MEMOS_PLUGIN_HOME/dist/bridge.cjs" --agent=hermes --daemon \
+        >>"$MEMOS_PLUGIN_HOME/logs/daemon-start.log" 2>&1 &
+      echo "$!" >"$MEMOS_PLUGIN_HOME/daemon/bridge.pid"
+    )
+    sleep "$MEMOS_DAEMON_START_WAIT_SECONDS"
+    BASH

@@ -14,7 +14,7 @@ from agentbench.domains.reasoning.evaluate import verify_answer
 from agentbench.domains.reasoning.omnimath import ReasoningDomain
 from agentbench.runner import run_task_once
 from agentbench.session import SessionSpec
-from agentbench.summary import build_summary, classify_failure
+from agentbench.summary import build_summary, classify_failure, response_text_for_char_stats
 
 
 def test_reasoning_exact_matches_evo_tuple_behavior():
@@ -153,6 +153,112 @@ def test_summary_reports_infra_excluded_pass_rate_and_turns(tmp_path):
     assert summary["infra_excluded"]["excluded_tasks"] == 1
     assert summary["infra_excluded"]["pass@1"] == {"mean": 1.0, "stderr": 0.0}
     assert summary["avg_turns"] == 3.0
+
+
+def test_response_chars_use_final_session_answer_for_generic_agents(tmp_path):
+    trial_dir = tmp_path / "task__trial_1"
+    trial_dir.mkdir()
+    (trial_dir / "session.jsonl").write_text(
+        "\n".join([
+            '{"role":"user","content":"prompt"}',
+            '{"role":"assistant","content":"working","reasoning_content":"hidden","tool_calls":[{"function":{"name":"exec"}}]}',
+            '{"role":"tool","content":"tool output"}',
+            '{"role":"assistant","content":"Final answer: \\\\boxed{12}","reasoning_content":"hidden"}',
+        ])
+        + "\n"
+    )
+    result = {"agent_result": {"response": "stdout log " * 2000}}
+
+    assert response_text_for_char_stats(result, trial_dir) == "Final answer: \\boxed{12}"
+
+
+def test_response_chars_use_all_openclaw_text_without_thinking(tmp_path):
+    trial_dir = tmp_path / "task__trial_1"
+    trial_dir.mkdir()
+    (trial_dir / "session.jsonl").write_text(
+        '{"type":"message","message":{"role":"assistant","stopReason":"stop",'
+        '"content":[{"type":"thinking","thinking":"long hidden reasoning"},'
+        '{"type":"text","text":"Work before tool"}]}}\n'
+        '{"type":"message","message":{"role":"tool","content":[{"type":"text","text":"tool output"}]}}\n'
+        '{"type":"message","message":{"role":"assistant","stopReason":"stop",'
+        '"content":[{"type":"text","text":"Concise final answer"}]}}\n'
+    )
+    result = {"agent": "openclaw", "agent_result": {"response": "Saved truncated answer"}}
+
+    assert response_text_for_char_stats(result, trial_dir) == "Work before tool\nConcise final answer"
+
+
+def test_response_chars_use_all_hermes_assistant_text_with_reasoning(tmp_path):
+    trial_dir = tmp_path / "task__trial_1"
+    trial_dir.mkdir()
+    (trial_dir / "session.jsonl").write_text(
+        "\n".join([
+            '{"role":"user","content":"prompt"}',
+            '{"role":"assistant","content":"first visible","reasoning_content":"hidden"}',
+            '{"role":"assistant","content":"","reasoning_content":"hidden only"}',
+            '{"role":"assistant","content":"tool call text","tool_calls":[{"function":{"name":"exec"}}]}',
+            '{"role":"tool","content":"tool output"}',
+            '{"role":"assistant","content":"final visible","reasoning_content":"more hidden"}',
+        ])
+        + "\n"
+    )
+    result = {"agent": "hermes", "agent_result": {"response": "final visible\n"}}
+
+    assert response_text_for_char_stats(result, trial_dir) == (
+        "hidden\nfirst visible\nhidden only\ntool call text\nmore hidden\nfinal visible"
+    )
+
+
+def test_response_chars_skip_internal_context_compaction_records(tmp_path):
+    trial_dir = tmp_path / "task__trial_1"
+    trial_dir.mkdir()
+    (trial_dir / "session.jsonl").write_text(
+        "\n".join([
+            '{"role":"assistant","content":"visible before compaction"}',
+            '{"role":"assistant","content":"[CONTEXT COMPACTION - REFERENCE ONLY] stale internal summary"}',
+            '{"role":"assistant","content":"final answer","reasoning_content":"hidden final"}',
+        ])
+        + "\n"
+    )
+    result = {"agent": "hermes", "agent_result": {"response": "final answer"}}
+
+    assert response_text_for_char_stats(result, trial_dir) == (
+        "visible before compaction\nhidden final\nfinal answer"
+    )
+
+
+def test_summary_response_chars_follow_evo_session_policy(tmp_path):
+    phase_dir = tmp_path / "phase"
+    trial_dir = phase_dir / "task_a__trial_1"
+    trial_dir.mkdir(parents=True)
+    (trial_dir / "session.jsonl").write_text(
+        "\n".join([
+            '{"role":"assistant","content":"visible","reasoning_content":"hidden"}',
+            '{"role":"assistant","content":"final","reasoning_content":"more"}',
+        ])
+        + "\n"
+    )
+    write_json(trial_dir / "result.json", {
+        "task_name": "task_a",
+        "agent": "hermes",
+        "trial": 1,
+        "agent_result": {"response": "final", "response_chars": 5, "elapsed_sec": 1},
+        "verifier_result": {"reward": 1.0},
+        "token_usage": {"turns": 1, "total": 10},
+    })
+
+    summary = build_summary(phase_dir, trials=1)
+
+    expected_chars = len("hidden\nvisible\nmore\nfinal")
+    assert summary["avg_chars"] == float(expected_chars)
+    assert summary["response_chars"] == {
+        "avg": float(expected_chars),
+        "median": float(expected_chars),
+        "pass_avg": float(expected_chars),
+        "fail_avg": 0.0,
+        "empty": 0,
+    }
+    assert summary["per_task"]["task_a"]["trial_results"][0]["chars"] == expected_chars
 
 
 class _FakeDomain:

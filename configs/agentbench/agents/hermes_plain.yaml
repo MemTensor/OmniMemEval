@@ -1,0 +1,44 @@
+# Hermes plain AgentBench config.
+#
+# This profile disables Hermes plugin toolsets for no-memory-plugin baselines.
+
+agent:
+  profile: hermes-plain
+  name: hermes
+  command: hermes
+
+  model: qwen3.6-flash
+  provider: custom
+  providers:
+    custom:
+      apiKey: ${LLM_API_KEY}
+      apiBase: ${LLM_BASE_URL}
+      extraBody:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  memory:
+    memory_enabled: false
+    user_profile_enabled: false
+    provider: none
+
+  reasoningEffort: none
+
+  runtime:
+    home_mode: isolated_copy
+    home_links: []
+
+  # Replace plugin/toolset surfaces inherited from ~/.hermes/config.yaml.
+  hermes_config_patch:
+    plugins:
+      enabled: []
+    platform_toolsets:
+      cli:
+        - terminal
+        - file
+        - code_execution
+    known_plugin_toolsets:
+      cli: []
+
+  session:
+    expose_context_env: OMNIMEMEVAL_AGENT_CONTEXT
