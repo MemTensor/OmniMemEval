@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import signal
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -40,6 +42,10 @@ class OpenClawAgentAdapter(AgentAdapter):
         self._workspace_dir: str | None = None
         self._task_env: dict[str, str] = {}
         self._task_env_info: dict[str, Any] = {}
+        self._gateway_port: int | None = None
+        self._gateway_token: str | None = None
+        self._gateway_proc: subprocess.Popen | None = None
+        self._gateway_log: Path | None = None
 
     def build_session_spec(self, **kwargs) -> SessionSpec:
         base = super().build_session_spec(**kwargs)
@@ -64,6 +70,10 @@ class OpenClawAgentAdapter(AgentAdapter):
 
     def _runtime(self) -> dict:
         return dict(self.config.get("runtime") or {})
+
+    def _transport(self) -> str:
+        runtime = self._runtime()
+        return str(runtime.get("transport") or "local").strip().lower()
 
     def _configured_home_links(self) -> list[str]:
         runtime = self._runtime()
@@ -134,6 +144,22 @@ class OpenClawAgentAdapter(AgentAdapter):
             self._sync_provider_model_defaults(config, providers)
         if self.config.get("tools"):
             config.setdefault("tools", {}).update(self.config["tools"])
+        if self._transport() == "gateway":
+            port, token = self._ensure_gateway_identity()
+            config["gateway"] = {
+                "mode": "local",
+                "bind": "loopback",
+                "port": port,
+                "auth": {
+                    "mode": "token",
+                    "token": token,
+                },
+                "remote": {
+                    "url": f"ws://127.0.0.1:{port}",
+                    "token": token,
+                },
+            }
+            config.pop("auth", None)
         mcp_servers = self._task_env_info.get("mcp_servers") or {}
         if mcp_servers:
             mcp_section = {}
@@ -320,6 +346,8 @@ class OpenClawAgentAdapter(AgentAdapter):
                     default_models[key] = entry
 
     def _ensure_plugin_load_paths(self, config: dict) -> None:
+        if self._runtime().get("disable_plugins", False):
+            return
         plugin_paths = []
         for link in self._configured_home_links():
             rel_path = Path(link)
@@ -363,12 +391,16 @@ class OpenClawAgentAdapter(AgentAdapter):
         self._ensure_temp_config()
 
     def cleanup_task(self) -> None:
+        self.stop_gateway()
         if self._temp_home and self._temp_home != str(Path.home()):
             shutil.rmtree(self._temp_home, ignore_errors=True)
         self._temp_home = None
         self._workspace_dir = None
         self._task_env = {}
         self._task_env_info = {}
+        self._gateway_port = None
+        self._gateway_token = None
+        self._gateway_log = None
 
     def _session_dir(self) -> Path:
         if self._temp_home:
@@ -393,7 +425,7 @@ class OpenClawAgentAdapter(AgentAdapter):
             str(timeout),
             "--json",
         ]
-        if self._runtime().get("local", False):
+        if self._transport() != "gateway" and self._runtime().get("local", False):
             cmd.insert(2, "--local")
         return cmd
 
@@ -402,7 +434,11 @@ class OpenClawAgentAdapter(AgentAdapter):
         env = dict(os.environ)
         if self._temp_home:
             env["OPENCLAW_HOME"] = self._temp_home
-        if self._runtime().get("strip_gateway", True):
+        if self._transport() == "gateway":
+            port, token = self._ensure_gateway_identity()
+            env["OPENCLAW_GATEWAY_URL"] = f"ws://127.0.0.1:{port}"
+            env["OPENCLAW_GATEWAY_TOKEN"] = token
+        elif self._runtime().get("strip_gateway", True):
             for key in (
                 "OPENCLAW_GATEWAY_URL",
                 "OPENCLAW_GATEWAY_TOKEN",
@@ -423,7 +459,97 @@ class OpenClawAgentAdapter(AgentAdapter):
                 env["NODE_OPTIONS"] = " ".join(parts)
         return env
 
+    def _ensure_gateway_identity(self) -> tuple[int, str]:
+        if self._gateway_port is None:
+            self._gateway_port = self._find_free_port()
+        if self._gateway_token is None:
+            self._gateway_token = secrets.token_hex(32)
+        return self._gateway_port, self._gateway_token
+
+    @staticmethod
+    def _find_free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    @staticmethod
+    def _tcp_ready(port: int) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def start_gateway(self) -> None:
+        if self._transport() != "gateway":
+            return
+        if self._gateway_proc and self._gateway_proc.poll() is None:
+            return
+        self._ensure_temp_config()
+        port, token = self._ensure_gateway_identity()
+        log_dir = Path(self._temp_home or str(Path.home())) / ".openclaw" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self._gateway_log = log_dir / f"gateway-{port}.log"
+        log_fh = self._gateway_log.open("a", encoding="utf-8", buffering=1)
+        cmd = [
+            self._command(),
+            "gateway",
+            "run",
+            "--port",
+            str(port),
+            "--bind",
+            "loopback",
+            "--auth",
+            "token",
+            "--token",
+            token,
+            "--ws-log",
+            str(self._runtime().get("gateway_ws_log", "compact")),
+        ]
+        self._gateway_proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=self._get_subprocess_env_for_gateway(),
+            start_new_session=True,
+        )
+        log_fh.close()
+        timeout = self._runtime_float(self._runtime(), "gateway_start_timeout", 60.0)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._gateway_proc.poll() is not None:
+                raise RuntimeError(
+                    f"OpenClaw gateway exited early with code {self._gateway_proc.returncode}; "
+                    f"log={self._gateway_log}"
+                )
+            if self._tcp_ready(port):
+                return
+            time.sleep(0.5)
+        raise RuntimeError(f"OpenClaw gateway did not start on port {port}; log={self._gateway_log}")
+
+    def _get_subprocess_env_for_gateway(self) -> dict[str, str]:
+        env = dict(os.environ)
+        if self._temp_home:
+            env["OPENCLAW_HOME"] = self._temp_home
+        env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
+        if any(env.get(name) for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")):
+            parts = env.get("NODE_OPTIONS", "").split()
+            if "--use-env-proxy" not in parts:
+                parts.append("--use-env-proxy")
+                env["NODE_OPTIONS"] = " ".join(parts)
+        return env
+
+    def stop_gateway(self) -> None:
+        proc = self._gateway_proc
+        self._gateway_proc = None
+        if proc is None or proc.poll() is not None:
+            return
+        grace = self._runtime_float(self._runtime(), "gateway_stop_timeout", 60.0)
+        self._terminate_process_tree(proc, grace)
+
     def call(self, prompt: str, session: SessionSpec, timeout: int = 3600) -> dict:
+        self.start_gateway()
         cmd = self._build_cli_cmd(prompt, session, timeout)
         env = self._get_subprocess_env(session)
         runtime = self._runtime()

@@ -5,6 +5,8 @@ settle_seconds: 1800
 feedback:
   enabled: true
   timeout: 300
+  structured_submit: false
+  backend: none
   memos_structured_submit: false
 home_links:
   - npm

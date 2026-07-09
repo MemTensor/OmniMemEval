@@ -182,9 +182,14 @@ scripts/agentbench/
   runner.py                         # phase/trial/retry 调度
   memory_lifecycle.py               # 记忆插件清理、备份、恢复命令执行
   feedback.py                       # train 后 verifier feedback prompt
+  plugin_feedback.py                # 插件侧 structured feedback 通用入口
+  session_capture.py                # 从 OpenClaw session 构造 task/feedback trace
   memos_feedback.py                 # 插件侧 structured feedback 适配
   agents/openclaw.py                # OpenClaw adapter
   domains/                          # 五个 domain adapter
+
+scripts/
+  run_agentbench_memos_5domain_1each_smoke.sh  # MemOS 五域/单域 1-each smoke
 
 configs/agentbench/
   agents/openclaw.yaml
@@ -200,6 +205,37 @@ results/agentbench/
 ```
 
 ## 测评协议
+
+### 最小 smoke 验证
+
+baseline smoke 可直接运行单域 `test_only`：
+
+```bash
+./scripts/run_agent_eval.sh \
+  --agent openclaw \
+  --domain reasoning \
+  --protocol test_only \
+  --version baseline_reasoning_smoke \
+  --trials 1 \
+  --parallel 1
+```
+
+MemOS lifecycle smoke 建议先跑单域 1 train / 1 test：
+
+```bash
+./scripts/run_agentbench_memos_5domain_1each_smoke.sh \
+  --domains reasoning \
+  --version memos_reasoning_1each_smoke \
+  --tasks-per-split 1 \
+  --trials 1 \
+  --test-runs 1 \
+  --parallel 1 \
+  --settle-seconds 0
+```
+
+该脚本会执行完整 `memory_train_backup_test` 生命周期：清理记忆、训练、发送
+verifier feedback、提交 MemOS structured feedback、备份、恢复、测试和 finalize。
+建议先用它验证本地 OpenClaw、MemOS、模型、judge 和 embedding 配置，再启动五域完整评测。
 
 ### `test_only`
 
@@ -257,6 +293,22 @@ results/agentbench/
   --parallel 1
 ```
 
+调试生命周期时，可以显式指定 train/test 任务：
+
+```bash
+./scripts/run_agent_eval.sh \
+  --agent openclaw \
+  --domain reasoning \
+  --protocol memory_train_backup_test \
+  --memory-plugin memos \
+  --version memos_reasoning_debug \
+  --train-task omni_35 \
+  --test-task omni_2080 \
+  --test-runs 1 \
+  --trials 1 \
+  --parallel 1
+```
+
 五域顺序运行：
 
 ```bash
@@ -298,6 +350,10 @@ configs/agentbench/memory_plugins/
 - `home_links`：在 isolated OpenClaw home 中需链接的插件目录。
 - `modes.train/test` 或 `commands.set_mode_*`：训练/测试时插件读写模式。
 - `commands.clear/backup/restore`：清理、备份、恢复记忆。
+- `execution`：可选 agent 执行策略。MemOS 使用 `transport: gateway` 和
+  `capture_mode: manual_after_feedback`，让任务执行可并发，同时在 verifier feedback
+  后显式提交记忆写入。
+- `max_parallel`：可选并发上限，用于不能安全并发启动多个本地 runtime 的插件。
 - `feedback`：是否启用 train feedback、timeout，以及插件侧 structured feedback。
 
 以 `memos.yaml` 为例，structured feedback 配置如下：
@@ -306,11 +362,17 @@ configs/agentbench/memory_plugins/
 feedback:
   enabled: true
   timeout: 300
+  structured_submit: true
+  backend: memos
+  submit_timeout: 900
   memos_structured_submit: true
   memos_submit_timeout: 900
 ```
 
 其他插件默认仅执行普通 train feedback，不执行 structured submit；需要显式提交反馈的插件可在对应 yaml 中开启相关开关。
+
+对于 MemOS，`structured_submit: true` 会在 verifier feedback turn 后调用 MemOS
+bridge 提交显式反馈。该步骤依赖 MemOS embedding/LLM 配置，可能比 agent 调用耗时更长；服务较慢时可调整 `submit_timeout`。
 
 ## 输出与结果读取
 
@@ -344,8 +406,20 @@ results/agentbench/openclaw-memos-memos_5domain_eval-reasoning/
 - `summary.json`：`pass@1`、平均 reward、平均耗时。
 - `result.json.agent_result`：OpenClaw 完成状态、耗时、是否从 session/trajectory 恢复。
 - `result.json.feedback_result`：train 后同 session feedback turn 状态。
-- `result.json.memos_feedback_result`：插件侧 structured feedback 状态。
+- `result.json.plugin_feedback_result`：插件侧 structured feedback 状态。
+- `result.json.memos_feedback_result`：MemOS structured feedback 的兼容字段。
 - `memory_lifecycle.json`：插件 clear/backup/restore 等命令事件。
+
+## 排查建议
+
+- 如果 smoke run 在 agent 已写出回答后长时间不返回，优先检查 domain verifier 是否正在等待外部 judge 服务。`reasoning` 域默认使用 `verify_mode: llm`。
+- 若只想验证生命周期机制，可临时复制 `configs/agentbench/domains/reasoning.yaml`，把 `verify_mode` 改为 `exact`，再通过 `--domain-config` 传入。该方式仅用于流程验证，不用于正式评测结果。
+- 如果卡在 MemOS structured feedback 阶段，检查 `result.json.plugin_feedback_result`、`memory_lifecycle.log` 和 `~/.openclaw/memos-plugin/data/memos.db`。成功提交后，MemOS DB 中应能看到 episode、task/feedback traces，以及一条 explicit feedback。
+- 中断运行后，可确认 MemOS viewer 端口没有残留监听：
+
+```bash
+lsof -nP -iTCP:18799 -sTCP:LISTEN
+```
 
 ## 验证结果
 

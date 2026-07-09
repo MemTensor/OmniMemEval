@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-DEFAULT_PYTHON="$(command -v python3 || command -v python || true)"
+if [[ -n "${CONDA_PREFIX:-}" && -x "$CONDA_PREFIX/bin/python" ]]; then
+  DEFAULT_PYTHON="$CONDA_PREFIX/bin/python"
+else
+  DEFAULT_PYTHON="$(command -v python || command -v python3 || true)"
+fi
 DEFAULT_VERSION="all5_test_$(date +%Y%m%d_%H%M%S)"
 
 AGENT="openclaw"

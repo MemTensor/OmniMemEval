@@ -12,9 +12,10 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from agentbench.agents import create_agent
-from agentbench.config import load_env_file, load_yaml, write_json
+from agentbench.config import deep_merge, load_env_file, load_yaml, write_json
 from agentbench.domains import create_domain
 from agentbench.memory_lifecycle import CommandMemoryLifecycle
+from agentbench.plugin_feedback import normalize_plugin_feedback_backend
 from agentbench.runner import run_phase
 
 
@@ -97,14 +98,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", default=None, help="Result version suffix")
     parser.add_argument("--env", default=None, help="Optional env file. Defaults also load project .env.agent when present.")
     parser.add_argument("--task", default=None, help="Task id(s), comma-separated")
+    parser.add_argument("--train-task", default=None, help="Train phase task id(s), comma-separated. Overrides --task for train phases.")
+    parser.add_argument("--test-task", default=None, help="Test phase task id(s), comma-separated. Overrides --task for test phases.")
     parser.add_argument("--trials", "--runs", dest="trials", type=int, default=1)
     parser.add_argument("--test-runs", type=int, default=1, help="For memory_train_backup_test: restore memory and run the test split this many times.")
     parser.add_argument("--train-feedback", dest="train_feedback", action="store_true", default=None, help="After train verification, send verifier feedback to the same agent session.")
     parser.add_argument("--no-train-feedback", dest="train_feedback", action="store_false", help="Disable train feedback turn.")
     parser.add_argument("--feedback-timeout", type=int, default=None, help="Timeout in seconds for the train feedback turn.")
-    parser.add_argument("--memos-structured-feedback", dest="memos_structured_feedback", action="store_true", default=None, help="Submit explicit MemOS feedback after the train feedback turn.")
-    parser.add_argument("--no-memos-structured-feedback", dest="memos_structured_feedback", action="store_false", help="Disable explicit MemOS feedback submit.")
-    parser.add_argument("--memos-feedback-timeout", type=int, default=None, help="Timeout in seconds for MemOS feedback.submit / episode.close.")
+    parser.add_argument("--plugin-structured-feedback", dest="plugin_structured_feedback", action="store_true", default=None, help="Submit plugin-side structured feedback after the train feedback turn.")
+    parser.add_argument("--no-plugin-structured-feedback", dest="plugin_structured_feedback", action="store_false", help="Disable plugin-side structured feedback submit.")
+    parser.add_argument("--plugin-feedback-backend", default=None, help="Structured feedback backend, such as memos. Defaults to memory plugin config.")
+    parser.add_argument("--plugin-feedback-timeout", type=int, default=None, help="Timeout in seconds for plugin structured feedback submit.")
+    parser.add_argument("--memos-structured-feedback", dest="memos_structured_feedback", action="store_true", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--no-memos-structured-feedback", dest="memos_structured_feedback", action="store_false", help=argparse.SUPPRESS)
+    parser.add_argument("--memos-feedback-timeout", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--pass-at", type=int, default=None, help="Compute pass@n using the first n trials. Defaults to --trials.")
     parser.add_argument("--parallel", type=int, default=1)
     parser.add_argument("--max-retries", type=int, default=2)
@@ -146,7 +153,58 @@ def _agent_config_for_memory_protocol(agent_config: dict, memory_config: dict) -
         link for link in [*configured_links, *memory_links]
         if not (link in seen or seen.add(link))
     ]
+    execution = memory_config.get("execution") or {}
+    if isinstance(execution, dict):
+        for key in (
+            "transport",
+            "gateway_mode",
+            "gateway_start_timeout",
+            "gateway_stop_timeout",
+            "gateway_ws_log",
+        ):
+            if key in execution:
+                runtime[key] = execution[key]
+    agent_runtime = memory_config.get("agent_runtime") or {}
+    patch = {}
+    if isinstance(agent_runtime, dict):
+        patch = agent_runtime.get("openclaw_config_patch") or {}
+    patch = deep_merge(dict(patch), dict(memory_config.get("openclaw_config_patch") or {}))
+    if patch:
+        config["openclaw_config_patch"] = deep_merge(
+            dict(config.get("openclaw_config_patch") or {}),
+            patch,
+        )
     return config
+
+
+def _apply_memory_parallel_limit(args: argparse.Namespace, memory_config: dict | None) -> None:
+    if not memory_config:
+        return
+    execution = memory_config.get("execution") or {}
+    limit = execution.get("max_parallel") if isinstance(execution, dict) else None
+    if limit is None:
+        limit = memory_config.get("max_parallel")
+    parallel_cfg = memory_config.get("parallel")
+    if limit is None and isinstance(parallel_cfg, dict):
+        limit = parallel_cfg.get("max")
+    if limit is None:
+        return
+    try:
+        max_parallel = int(limit)
+    except (TypeError, ValueError):
+        raise SystemExit(f"Invalid memory plugin max_parallel value: {limit!r}")
+    if max_parallel < 1:
+        raise SystemExit("memory plugin max_parallel must be >= 1")
+    requested = int(args.parallel)
+    args.requested_parallel = requested
+    if requested > max_parallel:
+        label = memory_config.get("plugin") or memory_config.get("name") or "memory"
+        print(
+            f"WARNING: memory plugin {label} caps --parallel at {max_parallel}; "
+            f"requested {requested}. Using --parallel {max_parallel}.",
+            flush=True,
+        )
+        args.parallel = max_parallel
 
 
 def main() -> None:
@@ -173,6 +231,7 @@ def main() -> None:
     memory_config_path, memory_config = _load_memory_config(args)
     if memory_config:
         agent_config = _agent_config_for_memory_protocol(agent_config, memory_config)
+        _apply_memory_parallel_limit(args, memory_config)
 
     profile_name = agent_config.get("profile") or agent_config_path.stem
     memory_label = None
@@ -180,23 +239,60 @@ def main() -> None:
         memory_label = str(memory_config.get("plugin") or memory_config.get("name") or memory_config_path.stem)
         profile_name = f"{profile_name}-{memory_label}"
     feedback_config = (memory_config or {}).get("feedback") or {}
+    execution_config = (memory_config or {}).get("execution") or {}
     if args.train_feedback is None:
         args.train_feedback = bool(feedback_config.get("enabled", args.protocol == "memory_train_backup_test"))
     if args.feedback_timeout is None:
         args.feedback_timeout = int(feedback_config.get("timeout", 300))
-    if args.memos_structured_feedback is None:
-        args.memos_structured_feedback = bool(
-            feedback_config.get(
-                "memos_structured_submit",
-                feedback_config.get("memos_structured_feedback", memory_label == "memos"),
+    if args.plugin_structured_feedback is None:
+        if args.memos_structured_feedback is not None:
+            args.plugin_structured_feedback = bool(args.memos_structured_feedback)
+        else:
+            args.plugin_structured_feedback = bool(
+                feedback_config.get(
+                    "structured_submit",
+                    feedback_config.get(
+                        "plugin_structured_submit",
+                        feedback_config.get(
+                            "memos_structured_submit",
+                            feedback_config.get("memos_structured_feedback", memory_label == "memos"),
+                        ),
+                    ),
+                )
             )
-        )
-    if args.memos_feedback_timeout is None:
-        args.memos_feedback_timeout = int(feedback_config.get("memos_submit_timeout", 900))
+    if args.plugin_feedback_backend is None:
+        configured_backend = feedback_config.get("backend") or feedback_config.get("plugin_feedback_backend")
+        if configured_backend is None and (
+            args.memos_structured_feedback
+            or feedback_config.get("memos_structured_submit")
+            or feedback_config.get("memos_structured_feedback")
+            or memory_label == "memos"
+        ):
+            configured_backend = "memos"
+        args.plugin_feedback_backend = normalize_plugin_feedback_backend(configured_backend)
+    else:
+        args.plugin_feedback_backend = normalize_plugin_feedback_backend(args.plugin_feedback_backend)
+    if args.plugin_feedback_timeout is None:
+        if args.memos_feedback_timeout is not None:
+            args.plugin_feedback_timeout = args.memos_feedback_timeout
+        else:
+            args.plugin_feedback_timeout = int(
+                feedback_config.get(
+                    "submit_timeout",
+                    feedback_config.get("plugin_submit_timeout", feedback_config.get("memos_submit_timeout", 900)),
+                )
+            )
+    args.memos_structured_feedback = args.plugin_structured_feedback
+    args.memos_feedback_timeout = args.plugin_feedback_timeout
+    args.plugin_capture_mode = str(
+        execution_config.get("capture_mode", "automatic")
+        if isinstance(execution_config, dict)
+        else "automatic"
+    )
     if args.feedback_timeout < 1:
         raise SystemExit("--feedback-timeout must be >= 1")
-    if args.memos_feedback_timeout < 1:
-        raise SystemExit("--memos-feedback-timeout must be >= 1")
+    if args.plugin_feedback_timeout < 1:
+        raise SystemExit("--plugin-feedback-timeout must be >= 1")
     args.memory_plugin_label = memory_label
     version = args.version or datetime.now().strftime("omnimemeval_%Y%m%d_%H%M%S")
     run_dir = Path(args.results_dir) / build_run_dir_name(
@@ -217,11 +313,19 @@ def main() -> None:
         "test_runs": args.test_runs,
         "train_feedback": args.train_feedback,
         "feedback_timeout": args.feedback_timeout,
+        "plugin_structured_feedback": args.plugin_structured_feedback,
+        "plugin_feedback_backend": args.plugin_feedback_backend,
+        "plugin_feedback_timeout": args.plugin_feedback_timeout,
+        "plugin_capture_mode": args.plugin_capture_mode,
         "memos_structured_feedback": args.memos_structured_feedback,
         "memos_feedback_timeout": args.memos_feedback_timeout,
         "parallel": args.parallel,
+        "requested_parallel": getattr(args, "requested_parallel", args.parallel),
         "train_split": args.train_split,
         "test_split": args.test_split,
+        "task": args.task,
+        "train_task": args.train_task,
+        "test_task": args.test_task,
         "memory_plugin": memory_label,
         "memory_plugin_config": str(memory_config_path.resolve()) if memory_config_path else None,
     })
@@ -239,6 +343,7 @@ def main() -> None:
             domain=make_domain(),
             agent_factory=agent_factory,
             args=args,
+            task=args.test_task or args.task,
         )
     elif args.protocol == "train_then_test":
         run_phase(
@@ -248,6 +353,7 @@ def main() -> None:
             domain=make_domain(),
             agent_factory=agent_factory,
             args=args,
+            task=args.train_task or args.task,
         )
         run_phase(
             phase="test_after_train",
@@ -256,6 +362,7 @@ def main() -> None:
             domain=make_domain(),
             agent_factory=agent_factory,
             args=args,
+            task=args.test_task or args.task,
         )
     else:
         assert memory_config is not None
@@ -276,6 +383,7 @@ def main() -> None:
             domain=make_domain(),
             agent_factory=agent_factory,
             args=args,
+            task=args.train_task or args.task,
         )
         lifecycle.wait_settle(args.domain)
         backup_file = lifecycle.backup(args.domain)
@@ -293,6 +401,7 @@ def main() -> None:
                 domain=make_domain(),
                 agent_factory=agent_factory,
                 args=args,
+                task=args.test_task or args.task,
             )
         lifecycle.finalize(args.domain)
 

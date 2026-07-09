@@ -10,7 +10,10 @@ from pathlib import Path
 
 from agentbench.config import write_json
 from agentbench.feedback import build_feedback_prompt
-from agentbench.memos_feedback import submit_memos_structured_feedback
+from agentbench.plugin_feedback import normalize_plugin_feedback_backend
+from agentbench.plugin_feedback import should_submit_plugin_feedback
+from agentbench.plugin_feedback import submit_plugin_feedback_artifact
+from agentbench.plugin_feedback import submit_plugin_structured_feedback
 from agentbench.summary import build_summary
 
 
@@ -23,14 +26,14 @@ def _prompt_for_phase(domain, task: dict, env_info: dict, phase: str, agent_conf
     return prompt
 
 
+def _stop_agent_gateway_if_available(agent) -> None:
+    stop_gateway = getattr(agent, "stop_gateway", None)
+    if callable(stop_gateway):
+        stop_gateway()
+
+
 def _should_send_train_feedback(args: Namespace, phase: str) -> bool:
     return phase == "train" and bool(getattr(args, "train_feedback", False))
-
-
-def _should_submit_memos_feedback(args: Namespace, phase: str) -> bool:
-    return _should_send_train_feedback(args, phase) and bool(
-        getattr(args, "memos_structured_feedback", False)
-    )
 
 
 def run_task_once(
@@ -68,6 +71,7 @@ def run_task_once(
         "agent_result": {},
         "verifier_result": {"reward": 0.0},
         "feedback_result": {},
+        "plugin_feedback_result": {},
         "memos_feedback_result": {},
         "exception_info": None,
     }
@@ -91,6 +95,11 @@ def run_task_once(
             feedback_prompt = build_feedback_prompt(task_name, verifier_result)
             result["feedback_prompt"] = feedback_prompt
             feedback_timeout = int(getattr(args, "feedback_timeout", 300))
+            capture_mode = str(
+                getattr(args, "plugin_capture_mode", "automatic") or "automatic"
+            ).strip().lower()
+            if capture_mode == "manual_after_feedback":
+                _stop_agent_gateway_if_available(agent)
             try:
                 feedback_result = agent.call(
                     feedback_prompt,
@@ -103,27 +112,52 @@ def run_task_once(
                     "completion_status": "error",
                     "error": str(exc),
                 }
-            if _should_submit_memos_feedback(args, phase):
+            finally:
+                if capture_mode == "manual_after_feedback":
+                    _stop_agent_gateway_if_available(agent)
+            if should_submit_plugin_feedback(args, phase):
                 try:
                     raw_session_file = result["agent_result"].get("_session_file")
                     session_file = Path(raw_session_file) if raw_session_file else None
-                    result["memos_feedback_result"] = submit_memos_structured_feedback(
-                        session=session,
-                        session_file=session_file,
-                        feedback_prompt=feedback_prompt,
-                        feedback_result=result["feedback_result"],
-                        verifier_result=verifier_result,
-                        domain_name=domain.name,
-                        task=task,
-                        env_info=env_info,
-                        phase_dir=phase_dir,
-                        timeout=float(getattr(args, "memos_feedback_timeout", 900)),
-                    )
+                    if capture_mode == "manual_after_feedback":
+                        result["plugin_feedback_result"] = submit_plugin_feedback_artifact(
+                            backend=str(getattr(args, "plugin_feedback_backend", "none")),
+                            session=session,
+                            session_file=session_file,
+                            task_prompt=prompt,
+                            agent_result=result["agent_result"],
+                            feedback_prompt=feedback_prompt,
+                            feedback_result=result["feedback_result"],
+                            verifier_result=verifier_result,
+                            domain_name=domain.name,
+                            task=task,
+                            env_info=env_info,
+                            phase_dir=phase_dir,
+                            timeout=float(getattr(args, "plugin_feedback_timeout", 900)),
+                        )
+                    else:
+                        result["plugin_feedback_result"] = submit_plugin_structured_feedback(
+                            backend=str(getattr(args, "plugin_feedback_backend", "none")),
+                            session=session,
+                            session_file=session_file,
+                            feedback_prompt=feedback_prompt,
+                            feedback_result=result["feedback_result"],
+                            verifier_result=verifier_result,
+                            domain_name=domain.name,
+                            task=task,
+                            env_info=env_info,
+                            phase_dir=phase_dir,
+                            timeout=float(getattr(args, "plugin_feedback_timeout", 900)),
+                        )
                 except Exception as exc:
-                    result["memos_feedback_result"] = {
+                    result["plugin_feedback_result"] = {
                         "status": "error",
                         "error": str(exc),
                     }
+                if normalize_plugin_feedback_backend(
+                    getattr(args, "plugin_feedback_backend", "")
+                ) == "memos":
+                    result["memos_feedback_result"] = dict(result["plugin_feedback_result"])
         try:
             domain.record_agent_outcome(task, env_info, trial_dir, agent_result, verifier_result)
         except Exception:
@@ -164,6 +198,7 @@ def run_task_once(
         save_result = dict(result)
         save_result["agent_result"] = dict(result.get("agent_result") or {})
         save_result["feedback_result"] = dict(result.get("feedback_result") or {})
+        save_result["plugin_feedback_result"] = dict(result.get("plugin_feedback_result") or {})
         save_result["memos_feedback_result"] = dict(result.get("memos_feedback_result") or {})
         response = save_result["agent_result"].get("response", "")
         if isinstance(response, str):
@@ -229,14 +264,18 @@ def run_phase(
     domain,
     agent_factory,
     args: Namespace,
+    task: str | None = None,
 ) -> dict:
     phase_dir.mkdir(parents=True, exist_ok=True)
     phase_args = Namespace(**vars(args))
     phase_args.split = split
+    if task is not None:
+        phase_args.task = task
     tasks = domain.load_tasks(phase_args)
     write_json(phase_dir / "phase_config.json", {
         "phase": phase,
         "split": split,
+        "task": phase_args.task,
         "tasks": len(tasks),
         "trials": args.trials,
         "parallel": args.parallel,

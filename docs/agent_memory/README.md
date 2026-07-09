@@ -178,6 +178,25 @@ huggingface-cli download EverMind-AI/EvoAgentBench \
   --parallel 1
 ```
 
+MemOS lifecycle smoke run:
+
+```bash
+./scripts/run_agentbench_memos_5domain_1each_smoke.sh \
+  --domains reasoning \
+  --version memos_reasoning_1each_smoke \
+  --tasks-per-split 1 \
+  --trials 1 \
+  --test-runs 1 \
+  --parallel 1 \
+  --settle-seconds 0
+```
+
+The MemOS smoke script runs the full `memory_train_backup_test` lifecycle on a
+small task subset: clear memory, train, send verifier feedback, submit MemOS
+structured feedback, backup, restore, test, and finalize. Use this before a
+full five-domain run to validate local OpenClaw, MemOS, model, judge, and
+embedding configuration.
+
 ## Protocols
 
 ### `test_only`
@@ -236,6 +255,22 @@ Single domain:
   --parallel 1
 ```
 
+For targeted lifecycle debugging, select explicit train/test tasks:
+
+```bash
+./scripts/run_agent_eval.sh \
+  --agent openclaw \
+  --domain reasoning \
+  --protocol memory_train_backup_test \
+  --memory-plugin memos \
+  --version memos_reasoning_debug \
+  --train-task omni_35 \
+  --test-task omni_2080 \
+  --test-runs 1 \
+  --trials 1 \
+  --parallel 1
+```
+
 Five domains:
 
 ```bash
@@ -277,7 +312,20 @@ Each config declares:
 - `home_links`: plugin paths linked into the isolated OpenClaw home.
 - `modes.train/test` or `commands.set_mode_*`: plugin read/write mode.
 - `commands.clear/backup/restore`: memory cleanup, backup, and restore commands.
+- `execution`: optional agent execution strategy. MemOS uses
+  `transport: gateway` and `capture_mode: manual_after_feedback` so task
+  execution can run in parallel while memory writes are submitted explicitly
+  after verifier feedback.
+- `max_parallel`: optional cap for plugins that cannot safely run multiple
+  agent processes against the same local runtime.
 - `feedback`: train feedback settings and optional plugin-side structured feedback.
+  Use `structured_submit`, `backend`, and `submit_timeout` for generic plugin
+  feedback. `backend: memos` uses the MemOS bridge submitter.
+
+For MemOS, `structured_submit: true` calls the MemOS bridge after the verifier
+feedback turn. This step can depend on the MemOS embedding/LLM configuration and
+may take longer than the agent call itself; tune `submit_timeout` if the service
+is slow.
 
 ## Results
 
@@ -297,7 +345,28 @@ Key files:
 - `summary.json`: `pass@1`, average reward, and average runtime.
 - `result.json.agent_result`: OpenClaw completion status and session recovery metadata.
 - `result.json.feedback_result`: train feedback turn status.
-- `result.json.memos_feedback_result`: plugin-side structured feedback status when enabled.
+- `result.json.plugin_feedback_result`: plugin-side structured feedback status when enabled.
+- `result.json.memos_feedback_result`: compatibility alias for MemOS structured feedback.
 - `memory_lifecycle.json`: clear/backup/restore lifecycle events.
 
 Recent evaluation results are recorded in [eval_res.md](./eval_res.md). Model service, external judge service, and embedding service status may affect per-sample rewards.
+
+## Troubleshooting
+
+- If a smoke run stalls after the agent response is written, check whether the
+  domain verifier is waiting on an external judge service. The reasoning domain
+  uses `verify_mode: llm` by default.
+- To validate the lifecycle mechanics without the external reasoning judge,
+  create a temporary copy of `configs/agentbench/domains/reasoning.yaml` with
+  `verify_mode: exact`, then pass it with `--domain-config`. Do not use this for
+  official evaluation results.
+- If a run stalls during MemOS structured feedback, inspect
+  `result.json.plugin_feedback_result`, `memory_lifecycle.log`, and
+  `~/.openclaw/memos-plugin/data/memos.db`. A successful MemOS submit should
+  create an episode, task/feedback traces, and one explicit feedback row.
+- After an interrupted run, confirm no OpenClaw/MemOS local runtime is still
+  listening on the MemOS viewer port:
+
+```bash
+lsof -nP -iTCP:18799 -sTCP:LISTEN
+```

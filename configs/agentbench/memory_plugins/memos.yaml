@@ -2,9 +2,26 @@ plugin: memos
 backup_dir: ~/memos-backups
 backup_file_template: "@backup_dir@/memos-openclaw-gateway-feedback-@domain@-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
+execution:
+  transport: gateway
+  gateway_mode: per_trial
+  capture_mode: manual_after_feedback
+  max_parallel: 12
+  capture_parallel: 1
+agent_runtime:
+  openclaw_config_patch:
+    plugins:
+      entries:
+        memos-local-plugin:
+          config:
+            memory_add:
+              enabled: false
 feedback:
   enabled: true
   timeout: 300
+  structured_submit: true
+  backend: memos
+  submit_timeout: 900
   memos_structured_submit: true
   memos_submit_timeout: 900
 home_links:
@@ -67,22 +84,53 @@ commands:
     bash <<'BASH'
     set -euo pipefail
     OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
     MEMOS_PLUGIN_HOME="$OPENCLAW_HOME/memos-plugin"
-    PLUGIN_WORKDIR="$OPENCLAW_HOME/extensions/memos-local-plugin"
 
-    pids="$(lsof -ti :18799 2>/dev/null || true)"
-    pids="$pids $(pgrep -f '[b]ridge.cts --agent=openclaw --daemon' 2>/dev/null || true)"
-    pids="$pids $(pgrep -f '[o]penclaw.*gateway' 2>/dev/null || true)"
-    for pid in $pids; do
-      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || [ "$pid" = "$PPID" ] && continue
-      [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
-      [ -n "$pid" ] && kill -CONT "$pid" 2>/dev/null || true
-    done
-    sleep 2
-    for pid in $pids; do
-      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || [ "$pid" = "$PPID" ] && continue
-      [ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null || true
-    done
+    runtime_pids() {
+      {
+        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
+        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
+        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
+      } | awk 'NF && !seen[$0]++'
+    }
+
+    is_self_pid() {
+      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
+    }
+
+    stop_memos_runtime() {
+      openclaw gateway stop 2>/dev/null || true
+      sleep 0.5
+      mapfile -t pids < <(runtime_pids)
+      for pid in "${pids[@]}"; do
+        is_self_pid "$pid" && continue
+        kill -TERM "$pid" 2>/dev/null || true
+        kill -CONT "$pid" 2>/dev/null || true
+      done
+      for _ in {1..20}; do
+        if [ -z "$(runtime_pids)" ]; then
+          return 0
+        fi
+        sleep 0.25
+      done
+      mapfile -t pids < <(runtime_pids)
+      for pid in "${pids[@]}"; do
+        is_self_pid "$pid" && continue
+        kill -KILL "$pid" 2>/dev/null || true
+      done
+      for _ in {1..20}; do
+        if [ -z "$(lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true)" ]; then
+          return 0
+        fi
+        sleep 0.25
+      done
+      echo "MemOS/OpenClaw viewer port $MEMOS_VIEWER_PORT is still occupied" >&2
+      lsof -nP -iTCP:"$MEMOS_VIEWER_PORT" -sTCP:LISTEN >&2 || true
+      return 1
+    }
+
+    stop_memos_runtime
 
     find "$OPENCLAW_HOME/agents" -type f -delete 2>/dev/null || true
     rm -f "$OPENCLAW_HOME/memory/"*.sqlite "$OPENCLAW_HOME/memory/"*.sqlite-wal "$OPENCLAW_HOME/memory/"*.sqlite-shm 2>/dev/null || true
@@ -93,27 +141,47 @@ commands:
     rm -rf "$MEMOS_PLUGIN_HOME/skills/"* 2>/dev/null || true
     rm -f "$MEMOS_PLUGIN_HOME/logs/"*.log "$MEMOS_PLUGIN_HOME/logs/"*.jsonl "$MEMOS_PLUGIN_HOME/daemon/"* 2>/dev/null || true
 
-    if [ -d "$PLUGIN_WORKDIR" ]; then
-      mkdir -p "$OPENCLAW_HOME/logs"
-      (cd "$PLUGIN_WORKDIR" && setsid npx tsx bridge.cts --agent=openclaw --daemon > "$OPENCLAW_HOME/logs/memos-viewer.log" 2>&1 < /dev/null &)
-    fi
-    openclaw gateway start 2>/dev/null || openclaw daemon start 2>/dev/null || true
+    # AgentBench runs OpenClaw with --local. Do not pre-start a gateway or
+    # bridge here; the per-task CLI process is the MemOS runtime owner.
     BASH
   backup: |
     bash <<'BASH'
     set -euo pipefail
     OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
     db="$OPENCLAW_HOME/memos-plugin/data/memos.db"
     if [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
       sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null || true
     fi
-    pid="$(lsof -ti :18799 2>/dev/null | head -1 || true)"
-    [ -z "$pid" ] && pid="$(pgrep -f '[b]ridge.cts --agent=openclaw --daemon' 2>/dev/null | head -1 || true)"
-    if [ -n "$pid" ] && [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ]; then
+
+    runtime_pids() {
+      {
+        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
+        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
+        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
+      } | awk 'NF && !seen[$0]++'
+    }
+
+    is_self_pid() {
+      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
+    }
+
+    openclaw gateway stop 2>/dev/null || true
+    sleep 0.5
+    mapfile -t pids < <(runtime_pids)
+    for pid in "${pids[@]}"; do
+      is_self_pid "$pid" && continue
       kill -TERM "$pid" 2>/dev/null || true
-      sleep 2
+      kill -CONT "$pid" 2>/dev/null || true
+    done
+    sleep 2
+    openclaw gateway stop 2>/dev/null || true
+    sleep 0.5
+    mapfile -t pids < <(runtime_pids)
+    for pid in "${pids[@]}"; do
+      is_self_pid "$pid" && continue
       kill -KILL "$pid" 2>/dev/null || true
-    fi
+    done
     tar -czf "@backup_file@" -C "$OPENCLAW_HOME" memos-plugin
     BASH
   restore: |
@@ -122,5 +190,36 @@ commands:
     OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
     rm -rf "$OPENCLAW_HOME/memos-plugin"
     tar -xzf "@backup_file@" -C "$OPENCLAW_HOME"
-    openclaw gateway restart 2>/dev/null || openclaw gateway start 2>/dev/null || openclaw daemon start 2>/dev/null || true
+    BASH
+  finalize: |
+    bash <<'BASH'
+    set -euo pipefail
+    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
+
+    runtime_pids() {
+      {
+        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
+        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
+        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
+      } | awk 'NF && !seen[$0]++'
+    }
+
+    is_self_pid() {
+      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
+    }
+
+    openclaw gateway stop 2>/dev/null || true
+    sleep 0.5
+    mapfile -t pids < <(runtime_pids)
+    for pid in "${pids[@]}"; do
+      is_self_pid "$pid" && continue
+      kill -TERM "$pid" 2>/dev/null || true
+      kill -CONT "$pid" 2>/dev/null || true
+    done
+    sleep 2
+    mapfile -t pids < <(runtime_pids)
+    for pid in "${pids[@]}"; do
+      is_self_pid "$pid" && continue
+      kill -KILL "$pid" 2>/dev/null || true
+    done
     BASH

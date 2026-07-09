@@ -257,3 +257,63 @@ def test_train_feedback_reuses_same_session(tmp_path):
     saved = json.loads((tmp_path / "task_a__trial_1" / "result.json").read_text())
     assert saved["feedback_prompt"].startswith("Verifier feedback for the previous attempt.")
     assert saved["feedback_result"]["response_chars"] == 10050
+
+
+def test_train_plugin_feedback_writes_generic_and_memos_compat_results(tmp_path):
+    agent = _FakeAgent()
+    result = run_task_once(
+        task={"name": "task_a"},
+        domain=_FakeDomain(),
+        agent=agent,
+        phase_dir=tmp_path,
+        phase="train",
+        split="train",
+        trial=1,
+        attempt=1,
+        args=Namespace(
+            train_feedback=True,
+            feedback_timeout=7,
+            plugin_structured_feedback=True,
+            plugin_feedback_backend="memos",
+            plugin_feedback_timeout=3,
+        ),
+    )
+
+    assert result["plugin_feedback_result"] == {
+        "status": "skipped",
+        "reason": "missing_openclaw_gateway_session_id",
+        "backend": "memos",
+    }
+    assert result["memos_feedback_result"] == result["plugin_feedback_result"]
+
+    saved = json.loads((tmp_path / "task_a__trial_1" / "result.json").read_text())
+    assert saved["plugin_feedback_result"] == result["plugin_feedback_result"]
+    assert saved["memos_feedback_result"] == result["plugin_feedback_result"]
+
+
+def test_train_plugin_feedback_unsupported_backend_does_not_fill_memos_alias(tmp_path):
+    agent = _FakeAgent()
+    result = run_task_once(
+        task={"name": "task_a"},
+        domain=_FakeDomain(),
+        agent=agent,
+        phase_dir=tmp_path,
+        phase="train",
+        split="train",
+        trial=1,
+        attempt=1,
+        args=Namespace(
+            train_feedback=True,
+            feedback_timeout=7,
+            plugin_structured_feedback=True,
+            plugin_feedback_backend="custom",
+            plugin_feedback_timeout=3,
+        ),
+    )
+
+    assert result["plugin_feedback_result"] == {
+        "status": "skipped",
+        "reason": "unsupported_plugin_feedback_backend",
+        "backend": "custom",
+    }
+    assert result["memos_feedback_result"] == {}

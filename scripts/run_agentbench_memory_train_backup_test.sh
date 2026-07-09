@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-DEFAULT_PYTHON="$(command -v python3 || command -v python || true)"
+if [[ -n "${CONDA_PREFIX:-}" && -x "$CONDA_PREFIX/bin/python" ]]; then
+  DEFAULT_PYTHON="$CONDA_PREFIX/bin/python"
+else
+  DEFAULT_PYTHON="$(command -v python || command -v python3 || true)"
+fi
 DEFAULT_VERSION="memory_train_backup_test_$(date +%Y%m%d_%H%M%S)"
 
 AGENT="openclaw"
@@ -25,11 +29,11 @@ ENV_FILE=""
 FORCE=0
 CONTINUE_ON_ERROR=0
 DOMAINS=(
-  "reasoning"
+  "software_engineering"
   "information_retrieval"
   "knowledge_work"
   "code_implementation"
-  "software_engineering"
+  "reasoning"
 )
 
 usage() {
@@ -171,7 +175,11 @@ fi
 
 PYTHON="${PYTHON:-$DEFAULT_PYTHON}"
 if [[ ! -x "$PYTHON" ]]; then
-  PYTHON="$(command -v python3 || command -v python)"
+  if [[ -n "${CONDA_PREFIX:-}" && -x "$CONDA_PREFIX/bin/python" ]]; then
+    PYTHON="$CONDA_PREFIX/bin/python"
+  else
+    PYTHON="$(command -v python || command -v python3)"
+  fi
 fi
 
 BASE_ARGS=(

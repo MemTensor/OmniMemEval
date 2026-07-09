@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agentbench.feedback import FEEDBACK_PREFIX
 from agentbench.session import SessionSpec
+from agentbench.session_capture import build_task_feedback_turns
 
 MANUAL_MEMOS_SOURCE = "omnimemeval_agentbench_feedback"
 
@@ -471,22 +472,37 @@ def _manual_capture_feedback_trace(
     env_info: dict,
     phase_dir: Path,
     timeout: float,
+    task_prompt: str | None = None,
+    agent_result: dict | None = None,
+    feedback_prompt: str | None = None,
+    feedback_result: dict | None = None,
 ) -> dict:
-    turns = _extract_turns_from_session(session_file)
-    if len(turns) < 2:
-        return {
-            "status": "error",
-            "error": "session_missing_task_or_feedback_turn",
-            "turns": len(turns),
-        }
-    task_turn = turns[0]
-    feedback_turn = None
-    for turn in turns[1:]:
-        if str(turn.get("userText", "")).startswith(FEEDBACK_PREFIX):
-            feedback_turn = turn
-            break
-    if feedback_turn is None:
-        feedback_turn = turns[1]
+    if task_prompt is not None and feedback_prompt is not None:
+        task_turn, feedback_turn, turn_count = build_task_feedback_turns(
+            session_file=session_file,
+            task_prompt=task_prompt,
+            agent_result=agent_result or {},
+            feedback_prompt=feedback_prompt,
+            feedback_result=feedback_result or {},
+            feedback_prefix=FEEDBACK_PREFIX,
+        )
+    else:
+        turns = _extract_turns_from_session(session_file)
+        if len(turns) < 2:
+            return {
+                "status": "error",
+                "error": "session_missing_task_or_feedback_turn",
+                "turns": len(turns),
+            }
+        task_turn = turns[0]
+        feedback_turn = None
+        for turn in turns[1:]:
+            if str(turn.get("userText", "")).startswith(FEEDBACK_PREFIX):
+                feedback_turn = turn
+                break
+        if feedback_turn is None:
+            feedback_turn = turns[1]
+        turn_count = len(turns)
 
     hints = _context_hints(
         session=session,
@@ -544,7 +560,119 @@ def _manual_capture_feedback_trace(
         "feedback_episode_id": feedback_episode_id,
         "feedback_trace_id": feedback_trace_id,
         "same_episode": feedback_episode_id == episode_id,
-        "turns": len(turns),
+        "turns": turn_count,
+    }
+
+
+def submit_memos_feedback_artifact(
+    *,
+    session: SessionSpec,
+    session_file: Path | None,
+    task_prompt: str,
+    agent_result: dict,
+    feedback_prompt: str,
+    feedback_result: dict,
+    verifier_result: dict,
+    domain_name: str,
+    task: dict,
+    env_info: dict,
+    phase_dir: Path,
+    timeout: float = 900.0,
+) -> dict:
+    if not session.openclaw_gateway_session_id:
+        return {"status": "skipped", "reason": "missing_openclaw_gateway_session_id"}
+
+    openclaw_home = _openclaw_home_from_session_file(session_file)
+    db_path = _memos_db_path(openclaw_home)
+
+    full_session_id = session.openclaw_gateway_session_id
+    plugin_root = _memos_plugin_root(openclaw_home)
+    BridgeClient = _load_memos_bridge_client(plugin_root)
+    client = BridgeClient(agent="openclaw", no_viewer=True)
+    try:
+        capture = _manual_capture_feedback_trace(
+            client=client,
+            full_session_id=full_session_id,
+            session_file=session_file,
+            session=session,
+            domain_name=domain_name,
+            task=task,
+            env_info=env_info,
+            phase_dir=phase_dir,
+            timeout=timeout,
+            task_prompt=task_prompt,
+            agent_result=agent_result,
+            feedback_prompt=feedback_prompt,
+            feedback_result=feedback_result,
+        )
+        if capture.get("status") != "captured":
+            return {
+                "status": "error",
+                "session_id": full_session_id,
+                "db_path": str(db_path),
+                "capture": capture,
+                "plugin_root": str(plugin_root),
+            }
+        if capture.get("feedback_episode_id") != capture.get("episode_id"):
+            moved = _move_trace_to_episode(
+                db_path,
+                capture.get("feedback_trace_id", ""),
+                capture.get("episode_id", ""),
+            )
+            capture["feedback_trace_moved"] = moved
+            if moved:
+                capture["feedback_episode_id"] = capture["episode_id"]
+        trace_id = capture.get("feedback_trace_id")
+        episode_id = capture.get("episode_id")
+        if not trace_id or not episode_id:
+            return {
+                "status": "error",
+                "session_id": full_session_id,
+                "db_path": str(db_path),
+                "capture": capture,
+                "error": "feedback_trace_missing_episode_or_trace_id",
+                "plugin_root": str(plugin_root),
+            }
+        submit_result = client.request(
+            "feedback.submit",
+            {
+                "episodeId": episode_id,
+                "traceId": trace_id,
+                "channel": "explicit",
+                "polarity": _feedback_polarity(verifier_result),
+                "magnitude": _feedback_magnitude(verifier_result),
+                "rationale": feedback_prompt,
+                "raw": {
+                    "source": MANUAL_MEMOS_SOURCE,
+                    "verifier": verifier_result,
+                    "taskName": task.get("name"),
+                    "domain": domain_name,
+                    "phaseDir": str(phase_dir),
+                    "feedbackResponse": feedback_result.get("response", ""),
+                    "session": session.to_dict(),
+                },
+                "ts": _now_ms(),
+            },
+            timeout=timeout,
+        )
+        close_result = client.request(
+            "episode.close",
+            {"episodeId": episode_id},
+            timeout=timeout,
+        )
+    finally:
+        client.close()
+
+    return {
+        "status": "submitted",
+        "session_id": full_session_id,
+        "episode_id": episode_id,
+        "feedback_trace_id": trace_id,
+        "feedback_submit_id": submit_result.get("id"),
+        "episode_close": close_result,
+        "capture": capture,
+        "db_path": str(db_path),
+        "plugin_root": str(plugin_root),
     }
 
 
