@@ -17,6 +17,75 @@ from agentbench.plugin_feedback import submit_plugin_structured_feedback
 from agentbench.summary import build_summary
 
 
+def assert_phase_succeeded(
+    phase_dir: Path,
+    *,
+    require_feedback: bool = False,
+    require_plugin_feedback: bool = False,
+) -> None:
+    """Raise when a completed phase contains technical execution failures.
+
+    A zero verifier reward is a valid benchmark outcome and is deliberately not
+    considered a technical failure here.  The gate only prevents a broken
+    train/feedback pipeline from being backed up and used by later test phases.
+    """
+
+    phase_config_path = phase_dir / "phase_config.json"
+    if not phase_config_path.exists():
+        raise RuntimeError(f"Phase did not produce phase_config.json: {phase_dir}")
+    try:
+        phase_config = json.loads(phase_config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Invalid phase config: {phase_config_path}: {exc}") from exc
+
+    expected = int(phase_config.get("tasks", 0)) * int(phase_config.get("trials", 0))
+    result_paths = sorted(
+        path
+        for path in phase_dir.glob("*__trial_*/result.json")
+        if path.parent.name.rpartition("__trial_")[2].isdigit()
+    )
+    failures: list[str] = []
+    if expected < 1:
+        failures.append("phase contains no task trials")
+    if len(result_paths) != expected:
+        failures.append(f"expected {expected} final result(s), found {len(result_paths)}")
+
+    for result_path in result_paths:
+        label = result_path.parent.name
+        try:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append(f"{label}: invalid result.json ({exc})")
+            continue
+
+        exception_info = result.get("exception_info")
+        if exception_info:
+            message = exception_info.get("message") if isinstance(exception_info, dict) else exception_info
+            failures.append(f"{label}: task exception: {message}")
+            continue
+
+        agent_status = (result.get("agent_result") or {}).get("completion_status")
+        if agent_status != "completed":
+            failures.append(f"{label}: agent completion_status={agent_status!r}")
+
+        if require_feedback:
+            feedback_status = (result.get("feedback_result") or {}).get("completion_status")
+            if feedback_status != "completed":
+                failures.append(f"{label}: feedback completion_status={feedback_status!r}")
+
+        if require_plugin_feedback:
+            plugin_status = (result.get("plugin_feedback_result") or {}).get("status")
+            if plugin_status != "submitted":
+                failures.append(f"{label}: plugin feedback status={plugin_status!r}")
+
+    if failures:
+        preview = "\n  - ".join(failures[:20])
+        extra = "" if len(failures) <= 20 else f"\n  - ... and {len(failures) - 20} more"
+        raise RuntimeError(
+            f"Phase failed validation; refusing to continue: {phase_dir}\n  - {preview}{extra}"
+        )
+
+
 def _prompt_for_phase(domain, task: dict, env_info: dict, phase: str, agent_config: dict) -> str:
     prompt = domain.build_prompt(task, env_info, phase)
     prefixes = agent_config.get("prompt_prefix") or {}

@@ -118,10 +118,17 @@ def _llm_verify(
     api_key: str,
     model: str,
     api_base: str,
+    timeout: float,
+    max_retries: int,
 ) -> tuple[bool, str]:
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key or "EMPTY", base_url=api_base or None)
+    client = OpenAI(
+        api_key=api_key or "EMPTY",
+        base_url=api_base or None,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
     prompt = (
         "You are a math judge. Compare the student's answer with the reference answer.\n\n"
         f"Problem: {problem}\n\n"
@@ -152,6 +159,8 @@ def verify_answer(
     api_key: str = "",
     model: str = "gpt-4o",
     api_base: str = "",
+    timeout: float = 240.0,
+    max_retries: int = 3,
 ) -> dict:
     expected = task.get("answer", "")
     agent_output = filter_verifier_input(agent_output)
@@ -173,6 +182,8 @@ def verify_answer(
                 api_key=api_key,
                 model=model,
                 api_base=api_base,
+                timeout=timeout,
+                max_retries=max_retries,
             )
         except Exception as exc:
             log.warning("LLM judge failed, falling back to exact match: %s", exc)

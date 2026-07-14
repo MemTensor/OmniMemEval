@@ -78,6 +78,34 @@ def test_reasoning_default_config_uses_llm_judge():
     assert cfg["verify_mode"] == "llm"
 
 
+def test_reasoning_passes_verifier_timeout_and_retries(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_verify_answer(task, agent_output, **kwargs):
+        captured.update(kwargs)
+        return {"reward": 1.0, "correct": True}
+
+    monkeypatch.setattr(
+        "agentbench.domains.reasoning.omnimath.verify_answer",
+        fake_verify_answer,
+    )
+    domain = ReasoningDomain({
+        "verify_mode": "llm",
+        "eval_api_key": "key",
+        "verify_timeout": 17,
+        "verify_max_retries": 2,
+    })
+    domain.verify(
+        {"task_id": "1", "problem": "1+1?", "answer": "2"},
+        {},
+        tmp_path,
+        agent_result={"response": r"\boxed{2}"},
+    )
+
+    assert captured["timeout"] == 17.0
+    assert captured["max_retries"] == 2
+
+
 def test_summary_separates_pass_at_from_average_pass_rate(tmp_path):
     phase_dir = tmp_path / "phase"
     write_json(phase_dir / "task_a__trial_1" / "result.json", {

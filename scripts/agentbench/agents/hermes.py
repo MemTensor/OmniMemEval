@@ -42,6 +42,14 @@ class HermesAgentAdapter(AgentAdapter):
     def _runtime(self) -> dict[str, Any]:
         return dict(self.config.get("runtime") or {})
 
+    def _phase(self) -> str:
+        phase = str(self._task_env_info.get("phase") or "").strip().lower()
+        if phase == "train":
+            return "train"
+        if phase == "test" or phase.startswith("test_"):
+            return "test"
+        return phase
+
     def _global_home(self) -> Path:
         return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")).expanduser()
 
@@ -178,6 +186,11 @@ class HermesAgentAdapter(AgentAdapter):
         if patch:
             config.update(deep_merge(dict(config), dict(patch)))
 
+        phase_patches = self.config.get("hermes_phase_config_patches") or {}
+        phase_patch = phase_patches.get(self._phase()) if isinstance(phase_patches, dict) else None
+        if isinstance(phase_patch, dict) and phase_patch:
+            config.update(deep_merge(dict(config), dict(phase_patch)))
+
         config.setdefault("sessions", {})["write_json_snapshots"] = True
         config.setdefault("display", {})["streaming"] = False
         config.setdefault("streaming", {})["enabled"] = False
@@ -260,6 +273,7 @@ class HermesAgentAdapter(AgentAdapter):
         (home_dir / "sessions").mkdir(parents=True, exist_ok=True)
         (home_dir / "logs").mkdir(parents=True, exist_ok=True)
         self._link_global_home_paths(home_dir)
+        self._install_phase_memory_provider(home_dir)
         self._copy_optional_home_file(".env", home_dir)
         self._copy_optional_home_file("auth.json", home_dir)
         self._write_config()
@@ -269,7 +283,21 @@ class HermesAgentAdapter(AgentAdapter):
         self._workspace_dir = str(Path(workspace_dir).resolve()) if workspace_dir else None
         self._task_env_info = dict(env_info or {})
         self._task_env_info["domain_name"] = session.metadata.get("domain", "")
+        self._task_env_info["phase"] = session.metadata.get("phase", "")
         self._ensure_temp_config()
+
+    def _install_phase_memory_provider(self, home_dir: Path) -> None:
+        if self._phase() != "test":
+            return
+        provider_name = str(self._runtime().get("test_memory_provider") or "").strip()
+        if not provider_name:
+            return
+        source = Path(__file__).resolve().parents[1] / "integrations" / provider_name
+        if not (source / "__init__.py").exists():
+            raise RuntimeError(f"Hermes test memory provider is missing: {source}")
+        target = home_dir / "plugins" / provider_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source, target_is_directory=True)
 
     def cleanup_task(self) -> None:
         if self._temp_home and self._temp_home != str(self._global_home()):

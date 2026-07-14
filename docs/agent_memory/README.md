@@ -291,29 +291,37 @@ Domain subset:
   --version memos_reasoning_code_eval
 ```
 
-## Memory Plugin Configuration
+## Agent, Profile, and Memory Lifecycle Configuration
 
-Plugin lifecycle configs live under:
+Configuration is split into three layers:
 
 ```text
-configs/agentbench/memory_plugins/
-  memos.yaml
-  everos.yaml
-  openviking.yaml
-  supermemory.yaml
-  hindsight.yaml
+configs/agentbench/
+  agents/{openclaw,hermes}.yaml
+  profiles/openclaw/{plain,memos,everos,hindsight,openviking,supermemory}.yaml
+  profiles/hermes/{plain,memos}.yaml
+  memory_plugins/memos/lifecycle/{openclaw,hermes}.yaml
+  memory_plugins/{everos,hindsight,openviking,supermemory}/lifecycle/openclaw.yaml
 ```
+
+`agents` owns runtime/model defaults, `profiles/<agent>` owns the runtime-specific
+plain or memory integration, and lifecycle configs own clear, settle, backup, and
+restore only. Memory protocols infer `--profile` from `--memory-plugin`; mismatched
+agent/plugin declarations fail before tasks start.
+
+Hermes profiles do not replace the user's global `platform_toolsets.cli`.
+The adapter inherits that list, removes only `web` outside `knowledge_work`,
+and narrows `information_retrieval` to its local search MCP tool only.
 
 Each config declares:
 
 - `plugin`: plugin label used in result directory names.
 - `backup_dir` and `backup_file_template`: memory backup location.
 - `settle_seconds` or `commands.wait_settle`: post-train memory settling logic.
-- `home_links`: plugin paths linked into the isolated OpenClaw home.
 - `modes.train/test` or `commands.set_mode_*`: plugin read/write mode.
 - `commands.clear/backup/restore`: memory cleanup, backup, and restore commands.
-- `execution`: optional agent execution strategy. MemOS uses
-  `transport: gateway` and `capture_mode: manual_after_feedback` so task
+- `execution`: optional lifecycle execution strategy. MemOS uses
+  `capture_mode: manual_after_feedback` so task
   execution can run in parallel while memory writes are submitted explicitly
   after verifier feedback.
 - `max_parallel`: optional cap for plugins that cannot safely run multiple

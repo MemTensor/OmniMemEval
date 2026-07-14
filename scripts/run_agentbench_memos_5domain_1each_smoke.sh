@@ -16,7 +16,7 @@ fi
 
 AGENT="openclaw"
 PYTHON="${PYTHON:-$DEFAULT_PYTHON}"
-MEMORY_PLUGIN_CONFIG="$PROJECT_DIR/configs/agentbench/memory_plugins/memos.yaml"
+MEMORY_PLUGIN_CONFIG=""
 VERSION="memos_5domain_1each_smoke_$(date +%Y%m%d_%H%M%S)"
 RESULTS_DIR="$PROJECT_DIR/results/agentbench"
 TRAIN_SPLIT="train"
@@ -62,7 +62,8 @@ Defaults are smoke-test oriented:
 Options:
   --agent NAME                 Agent runtime name. Default: openclaw
   --python FILE                Python executable. Default: PYTHON env or agentmem env
-  --memory-plugin-config FILE  MemOS lifecycle YAML. Default: configs/.../memos.yaml
+  --memory-plugin-config FILE  MemOS lifecycle YAML. Defaults to the selected agent's
+                               configs/.../memos/lifecycle/<agent>.yaml
   --version TAG                Result version tag. Default: timestamped
   --results-dir DIR            Result directory. Default: results/agentbench
   --train-split SPLIT          Train split selector. Default: train
@@ -198,6 +199,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$MEMORY_PLUGIN_CONFIG" ]]; then
+  MEMORY_PLUGIN_CONFIG="$PROJECT_DIR/configs/agentbench/memory_plugins/memos/lifecycle/$AGENT.yaml"
+fi
+
 if [[ ! -x "$PYTHON" ]]; then
   echo "ERROR: Python executable not found or not executable: $PYTHON" >&2
   exit 2
@@ -209,8 +214,8 @@ fi
 
 LOG_DIR="$RESULTS_DIR/_logs"
 mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/openclaw-memos-${VERSION}-5domain-1each-smoke.log"
-RUN_CONFIG_DIR="$LOG_DIR/openclaw-memos-${VERSION}-5domain-1each-smoke"
+LOG_FILE="$LOG_DIR/${AGENT}-memos-${VERSION}-5domain-1each-smoke.log"
+RUN_CONFIG_DIR="$LOG_DIR/${AGENT}-memos-${VERSION}-5domain-1each-smoke"
 mkdir -p "$RUN_CONFIG_DIR"
 RUN_MEMORY_PLUGIN_CONFIG="$RUN_CONFIG_DIR/memos.lifecycle.yaml"
 TASK_MANIFEST="$RUN_CONFIG_DIR/tasks.jsonl"

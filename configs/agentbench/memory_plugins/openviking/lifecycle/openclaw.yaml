@@ -1,4 +1,6 @@
+kind: memory_lifecycle
 plugin: openviking
+agent: openclaw
 backup_dir: ~/memory_backup
 backup_file_template: "@backup_dir@/openviking-@domain@-@run_id@.tar.gz"
 settle_seconds: 1800
@@ -8,10 +10,6 @@ feedback:
   structured_submit: false
   backend: none
   memos_structured_submit: false
-home_links:
-  - extensions/openviking
-  - npm
-
 env:
   OPENVIKING_CONFIG: "$HOME/.openviking/ov.conf"
   OPENVIKING_DATA_DIR: "/opt/openviking/data"

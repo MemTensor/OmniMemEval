@@ -1,4 +1,5 @@
-# OpenClaw AgentBench config.
+# OpenClaw AgentBench base config. Memory/plain behavior lives in profiles/openclaw/.
+kind: agent
 #
 # This is the single OpenClaw config used by AgentBench by default:
 #   ./scripts/run_agent_eval.sh --agent openclaw --domain reasoning
@@ -9,8 +10,6 @@
 
 agent:
   # profile is used in result directory names.
-  profile: openclaw
-
   # Agent runtime.
   name: openclaw
   command: openclaw
@@ -72,21 +71,6 @@ agent:
 
     # Remove gateway/auth from temporary config. Keep true for local embedded runs.
     strip_gateway: true
-
-    # Plain baseline should keep shared utility plugins such as Brave while
-    # disabling memory plugins that would change benchmark behavior.
-    disable_plugins: false
-    disabled_plugin_names:
-      - memos
-      - memos-local-plugin
-      - memmy-memory
-      - mem0
-      - everos
-    disabled_tool_prefixes:
-      - memos_
-      - memmy_
-      - mem0_
-      - everos_
 
     # Link selected global ~/.openclaw paths into each temporary OPENCLAW_HOME.
     # Useful for plugin evaluation configs.

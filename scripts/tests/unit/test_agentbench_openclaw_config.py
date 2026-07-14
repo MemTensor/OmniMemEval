@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agentbench.agents.openclaw import OpenClawAgentAdapter
 from agentbench.config import load_yaml
-from agentbench.run_agent_eval import _agent_config_for_memory_protocol
+from agentbench.run_agent_eval import _compose_agent_config
 
 
 def _write_global_config(home: Path, config: dict):
@@ -54,8 +54,9 @@ def test_openclaw_config_filters_memory_plugins_but_keeps_brave(tmp_path, monkey
 
 
 def test_default_openclaw_config_selectively_disables_memory_plugins():
-    cfg = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "openclaw.yaml")
-    runtime = cfg["agent"]["runtime"]
+    base = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "openclaw.yaml")["agent"]
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "openclaw" / "plain.yaml")
+    runtime = _compose_agent_config(base, profile)["runtime"]
 
     assert runtime["disable_plugins"] is False
     assert "memos-local-plugin" in runtime["disabled_plugin_names"]
@@ -141,7 +142,7 @@ def test_isolated_home_links_expose_global_plugin_paths(tmp_path, monkeypatch):
     assert (config_dir / "npm").is_symlink()
 
 
-def test_memory_protocol_agent_config_does_not_filter_memory_plugins():
+def test_memos_profile_enables_only_selected_memory_integration():
     cfg = {
         "runtime": {
             "disable_plugins": False,
@@ -150,16 +151,127 @@ def test_memory_protocol_agent_config_does_not_filter_memory_plugins():
         }
     }
 
-    prepared = _agent_config_for_memory_protocol(cfg, {
-        "home_links": ["extensions/memos-local-plugin", "memos-plugin", "npm"],
-    })
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "openclaw" / "memos.yaml")
+    prepared = _compose_agent_config(cfg, profile)
 
     assert prepared["runtime"]["disable_plugins"] is False
     assert prepared["runtime"]["disabled_plugin_names"] == []
     assert prepared["runtime"]["disabled_tool_prefixes"] == []
     assert prepared["runtime"]["home_mode"] == "isolated_copy"
     assert prepared["runtime"]["home_links"] == ["extensions/memos-local-plugin", "memos-plugin", "npm"]
+    assert prepared["runtime"]["transport"] == "gateway"
+    assert prepared["openclaw_config_patch"]["plugins"]["entries"]["memos-local-plugin"]
     assert cfg["runtime"]["disabled_plugin_names"] == ["memos-local-plugin", "mem0"]
+
+
+def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    global_config = {
+        "plugins": {
+            "enabled": True,
+            "allow": ["brave", "memos-local-plugin"],
+            "entries": {
+                "brave": {"enabled": True},
+                "memos-local-plugin": {
+                    "enabled": True,
+                    "config": {
+                        "memory_search": {"enabled": False},
+                        "memory_add": {"enabled": True},
+                    },
+                },
+            },
+        },
+        "tools": {"alsoAllow": ["brave_search", "memos_search"]},
+        "mcp": {"servers": {"global-search": {"command": "global"}}},
+    }
+    _write_global_config(tmp_path, global_config)
+    config_dir = tmp_path / ".openclaw"
+    (config_dir / "extensions" / "memos-local-plugin").mkdir(parents=True)
+    (config_dir / "memos-plugin").mkdir()
+    (config_dir / "npm").mkdir()
+
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "openclaw" / "memos.yaml")
+    agent = OpenClawAgentAdapter(profile["agent_patch"])
+    session = agent.build_session_spec(
+        phase="test_run_1",
+        domain="information_retrieval",
+        split="test",
+        task={"name": "ir_1"},
+        trial=1,
+    )
+    agent.prepare_task(
+        {"name": "ir_1"},
+        {
+            "mcp_only": True,
+            "mcp_servers": {"bcp-search": {"command": "python", "args": ["server.py"]}},
+            "disabled_tools": ["exec", "read_file"],
+        },
+        session,
+    )
+
+    try:
+        temp_config_path = Path(agent._temp_home) / ".openclaw" / "openclaw.json"
+        temp_config = json.loads(temp_config_path.read_text(encoding="utf-8"))
+        entry = temp_config["plugins"]["entries"]["memos-local-plugin"]
+
+        assert set(temp_config["plugins"]["entries"]) == {"memos-local-plugin"}
+        assert set(temp_config["mcp"]["servers"]) == {"bcp-search"}
+        assert entry["config"]["memory_search"]["enabled"] is True
+        assert entry["config"]["memory_add"]["enabled"] is False
+        assert "alsoAllow" not in temp_config["tools"]
+        assert "memos_search" in temp_config["tools"]["deny"]
+        assert json.loads(
+            (config_dir / "openclaw.json").read_text(encoding="utf-8")
+        ) == global_config
+    finally:
+        agent.cleanup_task()
+
+
+def test_memos_train_temp_config_disables_automatic_reads_and_writes(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_global_config(tmp_path, {})
+    config_dir = tmp_path / ".openclaw"
+    (config_dir / "extensions" / "memos-local-plugin").mkdir(parents=True)
+    (config_dir / "memos-plugin").mkdir()
+    (config_dir / "npm").mkdir()
+
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "openclaw" / "memos.yaml")
+    agent = OpenClawAgentAdapter(profile["agent_patch"])
+    session = agent.build_session_spec(
+        phase="train",
+        domain="reasoning",
+        split="train",
+        task={"name": "train_1"},
+        trial=1,
+    )
+    agent.prepare_task({"name": "train_1"}, {}, session)
+
+    try:
+        temp_config = json.loads(
+            (Path(agent._temp_home) / ".openclaw" / "openclaw.json").read_text(encoding="utf-8")
+        )
+        plugin_config = temp_config["plugins"]["entries"]["memos-local-plugin"]["config"]
+        assert plugin_config["memory_search"]["enabled"] is False
+        assert plugin_config["memory_add"]["enabled"] is False
+    finally:
+        agent.cleanup_task()
+
+
+def test_memos_openclaw_lifecycle_does_not_mutate_config_modes():
+    lifecycle = load_yaml(
+        ROOT
+        / "configs"
+        / "agentbench"
+        / "memory_plugins"
+        / "memos"
+        / "lifecycle"
+        / "openclaw.yaml"
+    )
+
+    assert "modes" not in lifecycle
 
 
 def test_openclaw_call_recovers_when_cli_does_not_exit_after_session_response(

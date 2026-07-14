@@ -1,4 +1,6 @@
+kind: memory_lifecycle
 plugin: hindsight
+agent: openclaw
 backup_dir: ~/memory_backup
 backup_file_template: "@backup_dir@/hindsight-openclaw-@domain@-@run_id@.tar.gz"
 settle_seconds: 1800
@@ -8,9 +10,6 @@ feedback:
   structured_submit: false
   backend: none
   memos_structured_submit: false
-home_links:
-  - npm
-
 env:
   HINDSIGHT_API_URL: "http://127.0.0.1:9077"
   HINDSIGHT_INSTANCE_JSON: "/var/lib/hindsight-openclaw/.pg0/instances/hindsight/instance.json"

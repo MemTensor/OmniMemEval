@@ -1,0 +1,11 @@
+kind: agent_profile
+name: openviking
+agent: openclaw
+memory_plugin: openviking
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    disable_plugins: false
+    disabled_plugin_names: []
+    disabled_tool_prefixes: []
+    home_links: [extensions/openviking, npm]

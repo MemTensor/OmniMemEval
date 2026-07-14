@@ -9,6 +9,8 @@
 
 data_dir: "./data/agentbench/Reasoning & Problem Decomposition/test_set_100"
 agent_timeout: 1800
+verify_timeout: ${EVALUATION_TIMEOUT}
+verify_max_retries: ${EVALUATION_MAX_RETRIES}
 verify_mode: llm
 eval_model_name: ${JUDGE_MODEL}
 eval_api_base: ${JUDGE_API_BASE}

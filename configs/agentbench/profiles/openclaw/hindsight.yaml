@@ -1,0 +1,11 @@
+kind: agent_profile
+name: hindsight
+agent: openclaw
+memory_plugin: hindsight
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    disable_plugins: false
+    disabled_plugin_names: []
+    disabled_tool_prefixes: []
+    home_links: [npm]

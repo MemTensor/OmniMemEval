@@ -1,0 +1,64 @@
+kind: agent_profile
+name: memos
+agent: openclaw
+memory_plugin: memos
+
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    disable_plugins: false
+    disabled_plugin_names: []
+    disabled_tool_prefixes: []
+    # IR is MCP-only, but MemOS must stay loaded for automatic turn-start
+    # retrieval. Its callable tools remain denied in that domain.
+    mcp_only_preserve_plugin_names:
+      - memos-local-plugin
+    mcp_only_denied_tools:
+      - memos_search
+      - memos_get
+      - memos_timeline
+      - memos_environment
+      - memos_skill_list
+      - memos_skill_get
+    home_links:
+      - extensions/memos-local-plugin
+      - memos-plugin
+      - npm
+    transport: gateway
+    gateway_mode: per_trial
+  openclaw_config_patch:
+    plugins:
+      enabled: true
+      allow:
+        - memos-local-plugin
+      slots:
+        memory: memos-local-plugin
+      entries:
+        memos-local-plugin:
+          enabled: true
+          config:
+            memory_add:
+              enabled: false
+          hooks:
+            allowConversationAccess: true
+  # These patches are applied while building each isolated OPENCLAW_HOME.
+  # Training uses explicit structured feedback capture; tests retrieve only.
+  openclaw_phase_config_patches:
+    train:
+      plugins:
+        entries:
+          memos-local-plugin:
+            config:
+              memory_search:
+                enabled: false
+              memory_add:
+                enabled: false
+    test:
+      plugins:
+        entries:
+          memos-local-plugin:
+            config:
+              memory_search:
+                enabled: true
+              memory_add:
+                enabled: false

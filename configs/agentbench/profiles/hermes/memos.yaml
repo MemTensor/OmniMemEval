@@ -1,0 +1,26 @@
+kind: agent_profile
+name: memos
+agent: hermes
+memory_plugin: memos
+
+agent_patch:
+  memory:
+    # Disable Hermes' built-in memory; persistence is provided only by MemOS.
+    memory_enabled: false
+    user_profile_enabled: false
+    provider: memtensor
+  runtime:
+    home_mode: isolated_copy
+    test_memory_provider: omnimemeval_memos_readonly
+    home_links:
+      - memos-plugin
+  hermes_config_patch:
+    # Keep the user's global platform_toolsets.cli. MemOS is selected through
+    # memory.provider; domain-specific tool narrowing belongs to the adapter.
+    plugins:
+      enabled:
+        - memtensor
+  hermes_phase_config_patches:
+    test:
+      memory:
+        provider: omnimemeval_memos_readonly

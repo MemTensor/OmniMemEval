@@ -224,7 +224,14 @@ baseline 可以用 `test_only` 跑一个无记忆插件的 agent profile 得到�
 
 ## Agent Profile 配置
 
-记忆插件不作为 `OmniMemEval` 的一等适配对象，而是 agent profile 的一部分。
+记忆插件不作为 `OmniMemEval` 的 agent adapter，而是拆分为 runtime-specific
+agent profile 和独立 lifecycle。当前配置位于：
+
+```text
+configs/agentbench/agents/<agent>.yaml
+configs/agentbench/profiles/<agent>/<profile>.yaml
+configs/agentbench/memory_plugins/<plugin>/lifecycle/<agent>.yaml
+```
 
 OpenClaw 示例：
 

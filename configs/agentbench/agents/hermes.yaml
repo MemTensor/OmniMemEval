@@ -1,10 +1,10 @@
-# Hermes AgentBench config.
+# Hermes AgentBench base config. Memory/plain behavior lives in profiles/hermes/.
+kind: agent
 #
 # Hermes global defaults are read from ~/.hermes/config.yaml first. Values here
 # override or extend those defaults for AgentBench runs.
 
 agent:
-  profile: hermes
   name: hermes
   command: hermes
 
@@ -19,12 +19,6 @@ agent:
       extraBody:
         chat_template_kwargs:
           enable_thinking: false
-
-  # Benchmark-local Hermes memory overrides. The configured memory provider is
-  # still inherited from ~/.hermes/config.yaml unless explicitly overridden.
-  memory:
-    memory_enabled: false
-    user_profile_enabled: false
 
   # Optional generation settings mapped into Hermes config.
   reasoningEffort: none

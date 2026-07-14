@@ -1,0 +1,19 @@
+kind: agent_profile
+name: plain
+agent: hermes
+memory_plugin: none
+
+agent_patch:
+  memory:
+    memory_enabled: false
+    user_profile_enabled: false
+    provider: none
+  runtime:
+    home_links: []
+  hermes_config_patch:
+    # Keep the user's global platform_toolsets.cli. The Hermes adapter removes
+    # only `web` outside knowledge_work and makes information_retrieval MCP-only.
+    plugins:
+      enabled: []
+    known_plugin_toolsets:
+      cli: []

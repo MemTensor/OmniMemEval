@@ -172,7 +172,7 @@ EVALUATION_MAX_RETRIES=3
 
 - OpenClaw agent 的模型来自 `configs/agentbench/agents/openclaw.yaml`，其中 provider credential 由 `.env.agent` 注入。
 - 若某些 provider 字段未在 `.env.agent` 中配置，adapter 会回退到 `~/.openclaw/openclaw.json` 中可解析的配置。
-- memory plugin 协议下始终使用 `runtime.home_mode: isolated_copy`，并通过 memory plugin 配置中的 `home_links` 把必要插件目录链接到临时 `OPENCLAW_HOME`。
+- memory plugin 协议通过对应的 runtime profile 设置 `runtime.home_mode: isolated_copy` 和 `home_links`，把必要插件目录链接到临时 agent home。
 
 ## 目录结构
 
@@ -329,28 +329,36 @@ verifier feedback、提交 MemOS structured feedback、备份、恢复、测试�
   --version memos_reasoning_code_eval
 ```
 
-## 记忆插件配置
+## Agent、Profile 与记忆生命周期配置
 
-插件生命周期配置位于：
+配置按三层组织：
 
 ```text
-configs/agentbench/memory_plugins/
-  memos.yaml
-  everos.yaml
-  openviking.yaml
-  supermemory.yaml
-  hindsight.yaml
+configs/agentbench/
+  agents/{openclaw,hermes}.yaml
+  profiles/openclaw/{plain,memos,everos,hindsight,openviking,supermemory}.yaml
+  profiles/hermes/{plain,memos}.yaml
+  memory_plugins/memos/lifecycle/{openclaw,hermes}.yaml
+  memory_plugins/{everos,hindsight,openviking,supermemory}/lifecycle/openclaw.yaml
 ```
+
+`agents` 只声明 Runtime 和模型；`profiles/<agent>` 声明 plain baseline 或
+插件如何接入该 Runtime；`memory_plugins/<plugin>/lifecycle/<agent>` 只负责
+clear、settle、backup、restore。memory 协议未传 `--profile` 时自动使用与
+`--memory-plugin` 同名的 profile，agent/plugin 不匹配会在运行任务前失败。
+
+Hermes profile 不覆盖用户全局的 `platform_toolsets.cli`。adapter 会继承该列表，
+仅在非 `knowledge_work` 域删除 `web`，并只在 `information_retrieval` 域将工具面
+收缩为本地 search MCP。
 
 每个配置负责声明：
 
 - `plugin`：插件标签，会进入结果目录名。
 - `backup_dir` 和 `backup_file_template`：备份位置。
 - `settle_seconds` 或 `commands.wait_settle`：训练后等待沉淀/进化的逻辑。
-- `home_links`：在 isolated OpenClaw home 中需链接的插件目录。
 - `modes.train/test` 或 `commands.set_mode_*`：训练/测试时插件读写模式。
 - `commands.clear/backup/restore`：清理、备份、恢复记忆。
-- `execution`：可选 agent 执行策略。MemOS 使用 `transport: gateway` 和
+- `execution`：可选生命周期执行策略。MemOS 使用
   `capture_mode: manual_after_feedback`，让任务执行可并发，同时在 verifier feedback
   后显式提交记忆写入。
 - `max_parallel`：可选并发上限，用于不能安全并发启动多个本地 runtime 的插件。

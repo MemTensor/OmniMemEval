@@ -1,4 +1,6 @@
-plugin: memos_hermes
+kind: memory_lifecycle
+plugin: memos
+agent: hermes
 backup_dir: ~/memos-backups
 backup_file_template: "@backup_dir@/memos-hermes-train-feedback-@domain@-@run_date@-@run_id@.tar.gz"
 settle_seconds: 0
@@ -9,9 +11,6 @@ feedback:
   structured_submit: false
   backend: none
   memos_structured_submit: false
-
-home_links:
-  - memos-plugin
 
 env:
   HERMES_HOME: "$HOME/.hermes"
@@ -50,10 +49,30 @@ commands:
     }
 
     memos_pids() {
-      {
-        pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true
-        pgrep -f "memos-plugin/dist/bridge.cjs --agent=hermes" 2>/dev/null || true
-      } | awk 'NF && !seen[$0]++'
+      local pid comm args
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
+        case "$comm" in
+          node|nodejs) ;;
+          *) continue ;;
+        esac
+        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        case "$args" in
+          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
+        esac
+      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
+    }
+
+    memos_daemon_pids() {
+      local pid args
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        case "$args" in
+          *--daemon*) echo "$pid" ;;
+        esac
+      done < <(memos_pids)
     }
 
     stop_memos_plugin() {
@@ -75,7 +94,7 @@ commands:
     }
 
     start_memos_daemon() {
-      if pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes --daemon" >/dev/null 2>&1; then
+      if [ -n "$(memos_daemon_pids)" ]; then
         return 0
       fi
       mkdir -p "$MEMOS_PLUGIN_HOME/logs" "$MEMOS_PLUGIN_HOME/daemon"
@@ -180,11 +199,27 @@ commands:
     MEMOS_DB="${MEMOS_DB:-$MEMOS_PLUGIN_HOME/data/memos.db}"
     paths=()
 
+    memos_pids() {
+      local pid comm args
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
+        case "$comm" in
+          node|nodejs) ;;
+          *) continue ;;
+        esac
+        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        case "$args" in
+          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
+        esac
+      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
+    }
+
     test -d "$MEMOS_PLUGIN_HOME"
     if [ -f "$MEMOS_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
       sqlite3 "$MEMOS_DB" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null || true
     fi
-    pids="$(pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true)"
+    pids="$(memos_pids)"
     for pid in $pids; do
       [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
     done
@@ -212,7 +247,23 @@ commands:
     test -f "@backup_file@"
     test -d "$MEMOS_PLUGIN_HOME"
 
-    pids="$(pgrep -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs --agent=hermes" 2>/dev/null || true)"
+    memos_pids() {
+      local pid comm args
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
+        case "$comm" in
+          node|nodejs) ;;
+          *) continue ;;
+        esac
+        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        case "$args" in
+          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
+        esac
+      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
+    }
+
+    pids="$(memos_pids)"
     for pid in $pids; do
       [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
     done

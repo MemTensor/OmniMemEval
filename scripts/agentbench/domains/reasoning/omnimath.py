@@ -110,6 +110,14 @@ class ReasoningDomain(DomainAdapter):
             self._resolved_config_value(cfg.get("eval_model_name"))
             or os.environ.get("JUDGE_MODEL", "gpt-4o")
         )
+        verify_timeout = float(
+            self._resolved_config_value(cfg.get("verify_timeout"))
+            or os.environ.get("EVALUATION_TIMEOUT", "240")
+        )
+        verify_max_retries = int(
+            self._resolved_config_value(cfg.get("verify_max_retries"))
+            or os.environ.get("EVALUATION_MAX_RETRIES", "3")
+        )
         mode = cfg.get("verify_mode", "exact")
         if mode == "llm" and not (api_key or api_base):
             raise ValueError(
@@ -124,6 +132,8 @@ class ReasoningDomain(DomainAdapter):
             api_key=api_key,
             model=model,
             api_base=api_base,
+            timeout=verify_timeout,
+            max_retries=verify_max_retries,
         )
         result.update({
             "task_id": task["task_id"],

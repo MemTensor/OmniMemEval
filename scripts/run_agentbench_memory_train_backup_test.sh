@@ -13,6 +13,7 @@ fi
 DEFAULT_VERSION="memory_train_backup_test_$(date +%Y%m%d_%H%M%S)"
 
 AGENT="openclaw"
+PROFILE=""
 MEMORY_PLUGIN=""
 MEMORY_PLUGIN_CONFIG=""
 VERSION="$DEFAULT_VERSION"
@@ -52,7 +53,8 @@ Runs each selected domain with the AgentBench memory lifecycle protocol:
 
 Options:
   --agent NAME                 Agent runtime name. Default: openclaw
-  --memory-plugin NAME         Config name under configs/agentbench/memory_plugins
+  --profile NAME               Runtime integration profile. Defaults to the memory plugin name
+  --memory-plugin NAME         Memory plugin name; lifecycle is selected for --agent
   --memory-plugin-config FILE  Explicit memory lifecycle YAML
   --version TAG                Result version tag. Default: timestamped
   --trials N / --runs N        Trials per task within each phase. Default: 1
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --agent)
       AGENT="$2"
+      shift 2
+      ;;
+    --profile)
+      PROFILE="$2"
       shift 2
       ;;
     --memory-plugin)
@@ -190,6 +196,9 @@ BASE_ARGS=(
   "--test-runs" "$TEST_RUNS"
   "--parallel" "$PARALLEL"
 )
+if [[ -n "$PROFILE" ]]; then
+  BASE_ARGS+=("--profile" "$PROFILE")
+fi
 if [[ -n "$FEEDBACK_TIMEOUT" ]]; then
   BASE_ARGS+=("--feedback-timeout" "$FEEDBACK_TIMEOUT")
 fi

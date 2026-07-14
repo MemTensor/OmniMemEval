@@ -1,21 +1,13 @@
+kind: memory_lifecycle
 plugin: memos
+agent: openclaw
 backup_dir: ~/memos-backups
 backup_file_template: "@backup_dir@/memos-openclaw-gateway-feedback-@domain@-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
 execution:
-  transport: gateway
-  gateway_mode: per_trial
   capture_mode: manual_after_feedback
   max_parallel: 12
   capture_parallel: 1
-agent_runtime:
-  openclaw_config_patch:
-    plugins:
-      entries:
-        memos-local-plugin:
-          config:
-            memory_add:
-              enabled: false
 feedback:
   enabled: true
   timeout: 300
@@ -24,60 +16,9 @@ feedback:
   submit_timeout: 900
   memos_structured_submit: true
   memos_submit_timeout: 900
-home_links:
-  - extensions/memos-local-plugin
-  - memos-plugin
-  - npm
-
 env:
   OPENCLAW_HOME: "$HOME/.openclaw"
   MEMOS_VIEWER_PORT: "18799"
-
-modes:
-  train: |
-    python - <<'PY'
-    import json
-    import os
-    from pathlib import Path
-
-    path = Path(os.environ.get("OPENCLAW_HOME", str(Path.home() / ".openclaw"))) / "openclaw.json"
-    cfg = json.loads(path.read_text(encoding="utf-8"))
-    plugins = cfg.setdefault("plugins", {})
-    plugins["enabled"] = True
-    plugins.setdefault("allow", [])
-    if "memos-local-plugin" not in plugins["allow"]:
-        plugins["allow"].insert(0, "memos-local-plugin")
-    plugins.setdefault("slots", {})["memory"] = "memos-local-plugin"
-    entry = plugins.setdefault("entries", {}).setdefault("memos-local-plugin", {})
-    entry["enabled"] = True
-    pcfg = entry.setdefault("config", {})
-    pcfg["memory_search"] = {"enabled": False}
-    pcfg["memory_add"] = {"enabled": True}
-    entry.setdefault("hooks", {})["allowConversationAccess"] = True
-    path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    PY
-  test: |
-    python - <<'PY'
-    import json
-    import os
-    from pathlib import Path
-
-    path = Path(os.environ.get("OPENCLAW_HOME", str(Path.home() / ".openclaw"))) / "openclaw.json"
-    cfg = json.loads(path.read_text(encoding="utf-8"))
-    plugins = cfg.setdefault("plugins", {})
-    plugins["enabled"] = True
-    plugins.setdefault("allow", [])
-    if "memos-local-plugin" not in plugins["allow"]:
-        plugins["allow"].insert(0, "memos-local-plugin")
-    plugins.setdefault("slots", {})["memory"] = "memos-local-plugin"
-    entry = plugins.setdefault("entries", {}).setdefault("memos-local-plugin", {})
-    entry["enabled"] = True
-    pcfg = entry.setdefault("config", {})
-    pcfg["memory_search"] = {"enabled": True}
-    pcfg["memory_add"] = {"enabled": False}
-    entry.setdefault("hooks", {})["allowConversationAccess"] = True
-    path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    PY
 
 commands:
   clear: |

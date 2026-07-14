@@ -1,4 +1,6 @@
+kind: memory_lifecycle
 plugin: supermemory
+agent: openclaw
 backup_dir: ~/memory_backup
 backup_file_template: "@backup_dir@/supermemory-openclaw-@domain@-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
@@ -8,9 +10,6 @@ feedback:
   structured_submit: false
   backend: none
   memos_structured_submit: false
-home_links:
-  - npm
-
 env:
   OPENCLAW_CONFIG: "$HOME/.openclaw/openclaw.json"
   OPENCLAW_HOME: "$HOME/.openclaw"

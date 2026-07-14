@@ -83,6 +83,36 @@ print("answer:" + query[:16])
     path.chmod(0o755)
 
 
+def _materialize_hermes_config(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    domain: str,
+    env_info: dict | None = None,
+) -> dict:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.delenv("HERMES_WEB_TOOL_DOMAINS", raising=False)
+    _write_global_hermes_config(tmp_path, {
+        "platform_toolsets": {
+            "cli": ["web", "terminal", "file", "code_execution", "memory"],
+        },
+    })
+
+    agent = HermesAgentAdapter({"runtime": {"home_mode": "isolated_copy"}})
+    session = agent.build_session_spec(
+        phase="test",
+        domain=domain,
+        split="test",
+        task={"name": "omni_1"},
+        trial=1,
+    )
+    agent.prepare_task({"name": "omni_1"}, env_info or {}, session)
+    return yaml.safe_load(
+        (Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8")
+    )
+
+
 def test_hermes_agent_is_registered():
     agent = create_agent("hermes", {"command": "hermes"})
     assert isinstance(agent, HermesAgentAdapter)
@@ -90,12 +120,147 @@ def test_hermes_agent_is_registered():
 
 def test_default_hermes_config_shape():
     cfg = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "hermes.yaml")
-    agent = cfg["agent"]
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "hermes" / "plain.yaml")
+    from agentbench.run_agent_eval import _compose_agent_config
+    agent = _compose_agent_config(cfg["agent"], profile)
+    assert cfg["kind"] == "agent"
     assert agent["name"] == "hermes"
-    assert agent["profile"] == "hermes"
     assert agent["runtime"]["home_mode"] == "isolated_copy"
     assert agent["memory"]["memory_enabled"] is False
     assert agent["memory"]["user_profile_enabled"] is False
+
+
+def test_hermes_profiles_do_not_override_global_cli_toolsets():
+    for profile_name in ("plain", "memos"):
+        profile = load_yaml(
+            ROOT / "configs" / "agentbench" / "profiles" / "hermes" / f"{profile_name}.yaml"
+        )
+        patch = profile.get("agent_patch", {}).get("hermes_config_patch", {})
+        assert "platform_toolsets" not in patch
+
+
+def test_hermes_memos_test_uses_temp_readonly_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    global_config = {
+        "memory": {
+            "memory_enabled": True,
+            "user_profile_enabled": True,
+            "provider": "global-provider",
+        }
+    }
+    _write_global_hermes_config(tmp_path, global_config)
+    (tmp_path / ".hermes" / "memos-plugin").mkdir()
+
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "hermes" / "memos.yaml")
+    agent = HermesAgentAdapter(profile["agent_patch"])
+    session = agent.build_session_spec(
+        phase="test_run_1",
+        domain="reasoning",
+        split="test",
+        task={"name": "omni_1"},
+        trial=1,
+    )
+    agent.prepare_task({"name": "omni_1"}, {}, session)
+
+    try:
+        temp_home = Path(agent._temp_home)
+        temp_config = yaml.safe_load((temp_home / "config.yaml").read_text(encoding="utf-8"))
+        readonly_provider = temp_home / "plugins" / "omnimemeval_memos_readonly"
+
+        assert temp_config["memory"] == {
+            "memory_enabled": False,
+            "user_profile_enabled": False,
+            "provider": "omnimemeval_memos_readonly",
+        }
+        assert readonly_provider.is_symlink()
+        assert (readonly_provider / "__init__.py").exists()
+        assert json.loads(
+            (tmp_path / ".hermes" / "config.yaml").read_text(encoding="utf-8")
+        ) == global_config
+    finally:
+        agent.cleanup_task()
+
+
+def test_hermes_memos_train_keeps_writable_provider_in_temp_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    _write_global_hermes_config(tmp_path, {})
+    (tmp_path / ".hermes" / "memos-plugin").mkdir()
+
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "hermes" / "memos.yaml")
+    agent = HermesAgentAdapter(profile["agent_patch"])
+    session = agent.build_session_spec(
+        phase="train",
+        domain="reasoning",
+        split="train",
+        task={"name": "omni_1"},
+        trial=1,
+    )
+    agent.prepare_task({"name": "omni_1"}, {}, session)
+
+    try:
+        temp_home = Path(agent._temp_home)
+        temp_config = yaml.safe_load((temp_home / "config.yaml").read_text(encoding="utf-8"))
+        assert temp_config["memory"]["provider"] == "memtensor"
+        assert not (temp_home / "plugins" / "omnimemeval_memos_readonly").exists()
+    finally:
+        agent.cleanup_task()
+
+
+def test_hermes_removes_only_web_outside_knowledge_work(tmp_path, monkeypatch):
+    config = _materialize_hermes_config(
+        tmp_path,
+        monkeypatch,
+        domain="reasoning",
+    )
+
+    assert config["platform_toolsets"]["cli"] == [
+        "terminal",
+        "file",
+        "code_execution",
+        "memory",
+    ]
+
+
+def test_hermes_keeps_global_cli_toolsets_for_knowledge_work(tmp_path, monkeypatch):
+    config = _materialize_hermes_config(
+        tmp_path,
+        monkeypatch,
+        domain="knowledge_work",
+    )
+
+    assert config["platform_toolsets"]["cli"] == [
+        "web",
+        "terminal",
+        "file",
+        "code_execution",
+        "memory",
+    ]
+
+
+def test_hermes_information_retrieval_is_search_only(tmp_path, monkeypatch):
+    config = _materialize_hermes_config(
+        tmp_path,
+        monkeypatch,
+        domain="information_retrieval",
+        env_info={
+            "mcp_servers": {
+                "bcp-search": {
+                    "type": "sse",
+                    "url": "http://localhost:9100/mcp",
+                },
+            },
+            "disabled_tools": ["read_file", "write_file", "exec", "web_search"],
+        },
+    )
+
+    assert config["platform_toolsets"]["cli"] == ["bcp-search"]
+    assert config["mcp_servers"]["bcp-search"] == {
+        "url": "http://localhost:9100/mcp",
+        "transport": "sse",
+        "enabled": True,
+    }
 
 
 def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch):
@@ -104,7 +269,10 @@ def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch
     monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
     _write_global_hermes_config(tmp_path)
 
-    cfg = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "hermes_plain.yaml")["agent"]
+    base = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "hermes.yaml")["agent"]
+    profile = load_yaml(ROOT / "configs" / "agentbench" / "profiles" / "hermes" / "plain.yaml")
+    from agentbench.run_agent_eval import _compose_agent_config
+    cfg = _compose_agent_config(base, profile)
     agent = HermesAgentAdapter(cfg)
     session = agent.build_session_spec(
         phase="test",
@@ -184,8 +352,11 @@ def test_hermes_home_links_are_relative(tmp_path, monkeypatch):
 
 
 def test_memos_hermes_lifecycle_does_not_reference_openclaw():
-    path = ROOT / "configs" / "agentbench" / "memory_plugins" / "memos_hermes.yaml"
+    path = ROOT / "configs" / "agentbench" / "memory_plugins" / "memos" / "lifecycle" / "hermes.yaml"
     text = path.read_text(encoding="utf-8").lower()
+    config = load_yaml(path)
+    assert config["plugin"] == "memos"
+    assert config["agent"] == "hermes"
     assert ".openclaw" not in text
     assert "--agent=openclaw" not in text
     assert "--agent=hermes" in text

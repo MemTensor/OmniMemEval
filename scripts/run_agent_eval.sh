@@ -28,6 +28,9 @@ Options are passed through to scripts/agentbench/run_agent_eval.py.
 
 Common options:
   --agent-config YAML          Optional. Defaults to configs/agentbench/agents/<agent>.yaml.
+  --profile NAME               Runtime profile, such as plain or memos. Defaults to plain,
+                               or to --memory-plugin for memory lifecycle protocols.
+  --profile-config YAML        Explicit runtime profile YAML.
   --trials N / --runs N       Run each task N times and report per-trial plus average metrics.
   --pass-at N                 Compute pass@n from the first N trials. Defaults to --trials.
 EOF

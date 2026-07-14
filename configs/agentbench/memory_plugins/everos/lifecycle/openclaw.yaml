@@ -1,4 +1,6 @@
+kind: memory_lifecycle
 plugin: everos
+agent: openclaw
 backup_dir: ~/memory_backup
 backup_file_template: "@backup_dir@/everos-openclaw-plugin-memory-@domain@-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
@@ -8,10 +10,6 @@ feedback:
   structured_submit: false
   backend: none
   memos_structured_submit: false
-home_links:
-  - plugins/evermemos-openclaw-plugin
-  - npm
-
 env:
   EVEROS_ROOT: "$HOME/.everos"
   EVEROS_HOST: "127.0.0.1"

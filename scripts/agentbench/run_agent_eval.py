@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import os
 import sys
 from datetime import datetime
@@ -16,7 +15,7 @@ from agentbench.config import deep_merge, load_env_file, load_yaml, write_json
 from agentbench.domains import create_domain
 from agentbench.memory_lifecycle import CommandMemoryLifecycle
 from agentbench.plugin_feedback import normalize_plugin_feedback_backend
-from agentbench.runner import run_phase
+from agentbench.runner import assert_phase_succeeded, run_phase
 
 
 def _default_domain_config(domain: str) -> Path:
@@ -27,8 +26,17 @@ def _default_agent_config(agent: str) -> Path:
     return ROOT / "configs" / "agentbench" / "agents" / f"{agent}.yaml"
 
 
-def _default_memory_plugin_config(plugin: str) -> Path:
-    return ROOT / "configs" / "agentbench" / "memory_plugins" / f"{plugin}.yaml"
+def _default_profile_config(agent: str, profile: str) -> Path:
+    return ROOT / "configs" / "agentbench" / "profiles" / agent / f"{profile}.yaml"
+
+
+def _default_memory_plugin_config(agent: str, plugin: str) -> Path:
+    nested = ROOT / "configs" / "agentbench" / "memory_plugins" / plugin / "lifecycle" / f"{agent}.yaml"
+    if nested.exists():
+        return nested
+    # Backward compatibility for repositories or callers still using the old flat layout.
+    legacy_name = f"{plugin}_{agent}" if agent != "openclaw" else plugin
+    return ROOT / "configs" / "agentbench" / "memory_plugins" / f"{legacy_name}.yaml"
 
 
 def _default_env_file() -> Path:
@@ -86,6 +94,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OmniMemEval AgentBench runner")
     parser.add_argument("--agent", default="openclaw", help="Agent runtime name")
     parser.add_argument("--agent-config", default=None, help="Agent YAML. Defaults to configs/agentbench/agents/<agent>.yaml")
+    parser.add_argument("--profile", default=None, help="Runtime profile name, such as plain or memos")
+    parser.add_argument("--profile-config", default=None, help="Explicit runtime profile YAML")
     parser.add_argument("--domain", default="reasoning", help="Domain name")
     parser.add_argument("--domain-config", default=None, help="Domain YAML")
     parser.add_argument(
@@ -93,7 +103,7 @@ def parse_args() -> argparse.Namespace:
         choices=["test_only", "train_then_test", "memory_train_backup_test"],
         default="test_only",
     )
-    parser.add_argument("--memory-plugin", default=None, help="Memory plugin config name under configs/agentbench/memory_plugins")
+    parser.add_argument("--memory-plugin", default=None, help="Memory plugin name; lifecycle is resolved for the selected agent")
     parser.add_argument("--memory-plugin-config", default=None, help="Explicit memory lifecycle YAML")
     parser.add_argument("--version", default=None, help="Result version suffix")
     parser.add_argument("--env", default=None, help="Optional env file. Defaults also load project .env.agent when present.")
@@ -128,52 +138,58 @@ def _load_memory_config(args: argparse.Namespace) -> tuple[Path | None, dict | N
     if args.memory_plugin_config:
         path = Path(args.memory_plugin_config)
     elif args.memory_plugin:
-        path = _default_memory_plugin_config(args.memory_plugin)
+        path = _default_memory_plugin_config(args.agent, args.memory_plugin)
     else:
         raise SystemExit("--protocol memory_train_backup_test requires --memory-plugin or --memory-plugin-config")
     return path, load_yaml(path)
 
 
-def _agent_config_for_memory_protocol(agent_config: dict, memory_config: dict) -> dict:
-    config = copy.deepcopy(agent_config)
-    runtime = config.setdefault("runtime", {})
-    # The default OpenClaw profile is also used for plain baseline runs, where
-    # memory plugins are deliberately filtered out.  In memory plugin protocols,
-    # the lifecycle config owns plugin enablement/mode, so this filter must not
-    # remove the plugin that is under evaluation.
-    runtime["disabled_plugin_names"] = []
-    runtime["disabled_tool_prefixes"] = []
-    runtime["disable_plugins"] = False
-    runtime["home_mode"] = "isolated_copy"
-
-    configured_links = list(runtime.get("home_links") or config.get("home_links") or [])
-    memory_links = list(memory_config.get("home_links") or [])
-    seen = set()
-    runtime["home_links"] = [
-        link for link in [*configured_links, *memory_links]
-        if not (link in seen or seen.add(link))
-    ]
-    execution = memory_config.get("execution") or {}
-    if isinstance(execution, dict):
-        for key in (
-            "transport",
-            "gateway_mode",
-            "gateway_start_timeout",
-            "gateway_stop_timeout",
-            "gateway_ws_log",
-        ):
-            if key in execution:
-                runtime[key] = execution[key]
-    agent_runtime = memory_config.get("agent_runtime") or {}
-    patch = {}
-    if isinstance(agent_runtime, dict):
-        patch = agent_runtime.get("openclaw_config_patch") or {}
-    patch = deep_merge(dict(patch), dict(memory_config.get("openclaw_config_patch") or {}))
-    if patch:
-        config["openclaw_config_patch"] = deep_merge(
-            dict(config.get("openclaw_config_patch") or {}),
-            patch,
+def _validate_config_identity(config: dict, *, kind: str, agent: str, plugin: str | None = None) -> None:
+    declared_kind = config.get("kind")
+    if declared_kind and declared_kind != kind:
+        raise SystemExit(f"Expected {kind} config, got kind={declared_kind!r}")
+    declared_agent = config.get("agent")
+    if isinstance(declared_agent, dict):
+        declared_agent = declared_agent.get("name")
+    if declared_agent and declared_agent != agent:
+        raise SystemExit(f"Config targets agent {declared_agent!r}, but --agent is {agent!r}")
+    declared_plugin = config.get("memory_plugin") or config.get("plugin")
+    if plugin and declared_plugin and declared_plugin != plugin:
+        raise SystemExit(
+            f"Config targets memory plugin {declared_plugin!r}, but --memory-plugin is {plugin!r}"
         )
+
+
+def _load_profile_config(args: argparse.Namespace, memory_config: dict | None) -> tuple[Path, dict, str]:
+    memory_plugin = args.memory_plugin
+    if memory_config and not memory_plugin:
+        memory_plugin = memory_config.get("plugin") or memory_config.get("name")
+    profile_name = args.profile
+    if not profile_name and args.profile_config:
+        profile_name = Path(args.profile_config).stem
+    if not profile_name:
+        profile_name = memory_plugin if memory_config else "plain"
+    path = Path(args.profile_config) if args.profile_config else _default_profile_config(args.agent, profile_name)
+    profile = load_yaml(path)
+    _validate_config_identity(
+        profile,
+        kind="agent_profile",
+        agent=args.agent,
+        plugin=memory_plugin if memory_config else None,
+    )
+    return path, profile, profile_name
+
+
+def _compose_agent_config(agent_config: dict, profile_config: dict, memory_config: dict | None = None) -> dict:
+    patch = profile_config.get("agent_patch") or {}
+    config = deep_merge(dict(agent_config), dict(patch))
+    # Compatibility: old lifecycle files carried agent integration fields. New
+    # lifecycle files deliberately do not; profiles own all runtime integration.
+    if memory_config and not profile_config.get("agent_patch"):
+        runtime = config.setdefault("runtime", {})
+        links = list(memory_config.get("home_links") or [])
+        if links:
+            runtime["home_links"] = links
     return config
 
 
@@ -224,20 +240,30 @@ def main() -> None:
     _apply_env_aliases(loaded_env_keys)
     agent_config_path = Path(args.agent_config) if args.agent_config else _default_agent_config(args.agent)
     raw_agent_config = load_yaml(agent_config_path)
+    _validate_config_identity(raw_agent_config, kind="agent", agent=args.agent)
     agent_config = raw_agent_config.get("agent", raw_agent_config)
     domain_config_path = Path(args.domain_config) if args.domain_config else _default_domain_config(args.domain)
     domain_config = load_yaml(domain_config_path)
     domain_config.setdefault("_config_path", str(domain_config_path.resolve()))
     memory_config_path, memory_config = _load_memory_config(args)
     if memory_config:
-        agent_config = _agent_config_for_memory_protocol(agent_config, memory_config)
+        selected_memory_plugin = str(
+            args.memory_plugin or memory_config.get("plugin") or memory_config.get("name") or memory_config_path.stem
+        )
+        _validate_config_identity(
+            memory_config,
+            kind="memory_lifecycle",
+            agent=args.agent,
+            plugin=selected_memory_plugin,
+        )
         _apply_memory_parallel_limit(args, memory_config)
+    profile_config_path, profile_config, selected_profile = _load_profile_config(args, memory_config)
+    agent_config = _compose_agent_config(agent_config, profile_config, memory_config)
 
-    profile_name = agent_config.get("profile") or agent_config_path.stem
+    profile_name = f"{args.agent}-{selected_profile}"
     memory_label = None
     if memory_config:
-        memory_label = str(memory_config.get("plugin") or memory_config.get("name") or memory_config_path.stem)
-        profile_name = f"{profile_name}-{memory_label}"
+        memory_label = selected_memory_plugin
     feedback_config = (memory_config or {}).get("feedback") or {}
     execution_config = (memory_config or {}).get("execution") or {}
     if args.train_feedback is None:
@@ -305,6 +331,8 @@ def main() -> None:
     write_json(run_dir / "experiment_config.json", {
         "agent": args.agent,
         "agent_config": str(agent_config_path.resolve()),
+        "profile": selected_profile,
+        "profile_config": str(profile_config_path.resolve()),
         "domain": args.domain,
         "domain_config": str(domain_config_path.resolve()),
         "protocol": args.protocol,
@@ -355,6 +383,11 @@ def main() -> None:
             args=args,
             task=args.train_task or args.task,
         )
+        assert_phase_succeeded(
+            run_dir / "train",
+            require_feedback=args.train_feedback,
+            require_plugin_feedback=args.plugin_structured_feedback,
+        )
         run_phase(
             phase="test_after_train",
             split=args.test_split,
@@ -384,6 +417,11 @@ def main() -> None:
             agent_factory=agent_factory,
             args=args,
             task=args.train_task or args.task,
+        )
+        assert_phase_succeeded(
+            run_dir / "train",
+            require_feedback=args.train_feedback,
+            require_plugin_feedback=args.plugin_structured_feedback,
         )
         lifecycle.wait_settle(args.domain)
         backup_file = lifecycle.backup(args.domain)

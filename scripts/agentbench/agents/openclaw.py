@@ -117,7 +117,6 @@ class OpenClawAgentAdapter(AgentAdapter):
             config.pop("plugins", None)
             config.pop("mcp", None)
         if self._task_env_info.get("mcp_only"):
-            config.pop("plugins", None)
             config.pop("mcp", None)
 
         defaults = config.setdefault("agents", {}).setdefault("defaults", {})
@@ -161,8 +160,8 @@ class OpenClawAgentAdapter(AgentAdapter):
             }
             config.pop("auth", None)
         mcp_servers = self._task_env_info.get("mcp_servers") or {}
+        mcp_section = {}
         if mcp_servers:
-            mcp_section = {}
             for name, cfg in mcp_servers.items():
                 mcp_section[name] = self._build_mcp_server_entry(cfg)
             if self._task_env_info.get("mcp_only"):
@@ -183,9 +182,77 @@ class OpenClawAgentAdapter(AgentAdapter):
         patch = self.config.get("openclaw_config_patch") or {}
         if patch:
             config = deep_merge(config, patch)
+        phase_patch = self._phase_config_patch()
+        if phase_patch:
+            config = deep_merge(config, phase_patch)
+        if self._task_env_info.get("mcp_only"):
+            self._restrict_mcp_only_config(config, mcp_section)
         self._filter_disabled_plugins(config)
         self._ensure_plugin_load_paths(config)
         return config
+
+    def _phase_config_patch(self) -> dict:
+        patches = self.config.get("openclaw_phase_config_patches") or {}
+        phase = str(self._task_env_info.get("phase") or "").strip().lower()
+        if phase == "train":
+            key = "train"
+        elif phase == "test" or phase.startswith("test_"):
+            key = "test"
+        else:
+            return {}
+        patch = patches.get(key) if isinstance(patches, dict) else None
+        return dict(patch) if isinstance(patch, dict) else {}
+
+    def _mcp_only_preserved_plugin_names(self) -> set[str]:
+        names = self._runtime().get("mcp_only_preserve_plugin_names") or []
+        return {str(name) for name in names if str(name).strip()}
+
+    def _restrict_mcp_only_config(self, config: dict, mcp_servers: dict) -> None:
+        """Keep task MCP plus explicitly selected auto-injection plugins only."""
+
+        config["mcp"] = {"servers": dict(mcp_servers)}
+        preserved = self._mcp_only_preserved_plugin_names()
+        plugins = config.get("plugins")
+        if not preserved or not isinstance(plugins, dict):
+            config.pop("plugins", None)
+        else:
+            allow = plugins.get("allow")
+            if isinstance(allow, list):
+                plugins["allow"] = [name for name in allow if str(name) in preserved]
+            entries = plugins.get("entries")
+            if isinstance(entries, dict):
+                plugins["entries"] = {
+                    name: value for name, value in entries.items() if str(name) in preserved
+                }
+            slots = plugins.get("slots")
+            if isinstance(slots, dict):
+                plugins["slots"] = {
+                    slot: name for slot, name in slots.items() if str(name) in preserved
+                }
+            installs = plugins.get("installs")
+            if isinstance(installs, dict):
+                plugins["installs"] = {
+                    name: value for name, value in installs.items() if str(name) in preserved
+                }
+            load = plugins.get("load")
+            if isinstance(load, dict) and isinstance(load.get("paths"), list):
+                load["paths"] = [
+                    path for path in load["paths"]
+                    if any(name in Path(str(path)).name for name in preserved)
+                ]
+
+        tools = config.setdefault("tools", {})
+        # Global allow-lists must not leak plugin tools into an MCP-only domain.
+        tools.pop("alsoAllow", None)
+        denied = tools.get("deny")
+        if not isinstance(denied, list):
+            denied = []
+        extra_denied = self._runtime().get("mcp_only_denied_tools") or []
+        seen = set()
+        tools["deny"] = [
+            tool for tool in [*denied, *extra_denied]
+            if not (tool in seen or seen.add(tool))
+        ]
 
     def _disabled_plugin_names(self) -> set[str]:
         runtime = self._runtime()
@@ -388,6 +455,7 @@ class OpenClawAgentAdapter(AgentAdapter):
         self._workspace_dir = str(Path(workspace_dir).resolve()) if workspace_dir else None
         self._task_env = {}
         self._task_env_info = dict(env_info or {})
+        self._task_env_info["phase"] = session.metadata.get("phase")
         self._ensure_temp_config()
 
     def cleanup_task(self) -> None:
