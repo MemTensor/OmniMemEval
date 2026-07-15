@@ -8,6 +8,7 @@ agent: openclaw
 backup_dir: "@run_dir@/memory_backups"
 backup_file_template: "@backup_dir@/memos-openclaw-@domain@-@run_date@-@run_id@.sqlite3"
 global_backup_file_template: "@backup_dir@/user-global-openclaw-@run_date@-@run_id@.sqlite3"
+resume_file_template: "@backup_dir@/memos-openclaw-@domain@-@run_id@-resume.sqlite3"
 settle_seconds: 0
 
 execution:
@@ -252,6 +253,26 @@ commands:
     sqlite3 "$source" ".backup '$db.tmp'"
     mv "$db.tmp" "$db"
     chmod 600 "$db"
+    BASH
+
+  checkpoint: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    dest="@backup_file@"
+    case "$dest" in *"'"*) echo "checkpoint path cannot contain a single quote" >&2; exit 1;; esac
+    mkdir -p "$(dirname "$dest")"
+    chmod 700 "$(dirname "$dest")"
+    rm -f "$dest" "$dest.tmp"
+    # A failure before MemOS creates its database has no resumable memory yet.
+    # Do not manufacture an empty checkpoint that could later mask that state.
+    [ -s "$db" ] || exit 0
+    command -v sqlite3 >/dev/null
+    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$dest.tmp'"
+    test "$(sqlite3 "$dest.tmp" 'PRAGMA quick_check;')" = "ok"
+    mv "$dest.tmp" "$dest"
+    chmod 600 "$dest"
     BASH
 
   cleanup: |

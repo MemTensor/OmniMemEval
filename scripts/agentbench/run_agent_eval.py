@@ -90,6 +90,12 @@ def build_run_dir_name(*, profile_name: str, domain: str, version: str) -> str:
     return f"{profile_name}-{version}-{domain}"
 
 
+def _has_existing_trial_results(run_dir: Path) -> bool:
+    """Return whether this run directory contains resumable phase output."""
+
+    return any(run_dir.glob("**/*__trial_*/result.json"))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OmniMemEval AgentBench runner")
     parser.add_argument("--agent", default="openclaw", help="Agent runtime name")
@@ -236,6 +242,10 @@ def _finish_memory_lifecycle(
     deferred_cleanup_error: BaseException | None = None
     finalizers = [("finalize", lambda: lifecycle.finalize(domain))]
     if runtime_env_active:
+        # Persist the minimum run-owned memory state before cleanup removes the
+        # private runtime home.  This lets a same-version retry skip destructive
+        # clear without retaining copied credentials or daemon state.
+        finalizers.append(("checkpoint", lambda: lifecycle.checkpoint(domain)))
         finalizers.append(
             ("cleanup", lambda: lifecycle.cleanup(domain, global_snapshot))
         )
@@ -361,6 +371,13 @@ def main() -> None:
         domain=args.domain,
         version=version,
     )
+    memory_rerun = bool(memory_config) and _has_existing_trial_results(run_dir)
+    if memory_rerun and args.force:
+        raise SystemExit(
+            "--force cannot safely re-run every task over an existing memory database. "
+            "Use the same version without --force to resume missing trials, or choose "
+            "a new --version for a fresh evaluation."
+        )
     run_dir.mkdir(parents=True, exist_ok=True)
 
     write_json(run_dir / "experiment_config.json", {
@@ -452,7 +469,18 @@ def main() -> None:
             lifecycle.validate(args.domain)
             global_snapshot = lifecycle.prepare_global_snapshot(args.domain)
             lifecycle.set_mode("train", args.domain)
-            lifecycle.clear(args.domain)
+            if memory_rerun:
+                resume_file = lifecycle.resume_file(args.domain)
+                if not resume_file.exists():
+                    raise RuntimeError(
+                        "Existing evaluation results require the matching memory "
+                        f"checkpoint, but it was not found: {resume_file}. Choose a "
+                        "new --version for a fresh evaluation."
+                    )
+                print(f"Resuming memory state from {resume_file}; clear skipped.")
+                lifecycle.restore(args.domain, resume_file)
+            else:
+                lifecycle.clear(args.domain)
             train_summary = run_phase(
                 phase="train",
                 split=args.train_split,

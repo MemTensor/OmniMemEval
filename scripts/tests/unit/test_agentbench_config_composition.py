@@ -15,6 +15,7 @@ from agentbench.memory_lifecycle import CommandMemoryLifecycle
 from agentbench.run_agent_eval import (
     _compose_agent_config,
     _default_memory_plugin_config,
+    _has_existing_trial_results,
     _load_profile_config,
     _validate_config_identity,
 )
@@ -100,11 +101,25 @@ def test_memos_lifecycles_use_private_sqlite_only_backups():
         assert required <= config["commands"].keys()
         assert config["backup_file_template"].endswith(".sqlite3")
         assert config["global_backup_file_template"].endswith(".sqlite3")
+        assert config["resume_file_template"].endswith("-resume.sqlite3")
         assert config["backup_dir"] == "@run_dir@/memory_backups"
+        assert "checkpoint" in config["commands"]
         assert "tar " not in config["commands"]["backup"]
         assert ".auth.json" not in config["commands"]["backup"]
         assert "config.yaml" not in config["commands"]["backup"]
         assert "pgrep" not in "\n".join(config["commands"].values())
+
+
+def test_existing_trial_results_detect_only_real_trial_outputs(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "experiment_config.json").write_text("{}", encoding="utf-8")
+    assert not _has_existing_trial_results(run_dir)
+
+    result = run_dir / "train" / "task-1__trial_1" / "result.json"
+    result.parent.mkdir(parents=True)
+    result.write_text("{}", encoding="utf-8")
+    assert _has_existing_trial_results(run_dir)
 
 
 def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path, monkeypatch):

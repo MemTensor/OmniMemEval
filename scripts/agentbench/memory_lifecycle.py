@@ -183,6 +183,31 @@ class CommandMemoryLifecycle:
         finally:
             self._write_manifest()
 
+    def checkpoint(self, domain: str) -> Path | None:
+        """Persist run-owned memory needed to resume an interrupted evaluation.
+
+        Checkpointing is optional for lifecycle implementations.  Plugins that
+        support it should write only their mutable memory database, not runtime
+        configuration, credentials, logs, or process state.
+        """
+
+        if not self._has_stage("checkpoint"):
+            return None
+        checkpoint_file = self.resume_file(domain)
+        checkpoint_file.parent.mkdir(parents=True, exist_ok=True)
+        self._run_stage("checkpoint", domain, backup_file=checkpoint_file)
+        if not checkpoint_file.exists():
+            raise RuntimeError(
+                "Memory checkpoint command did not create expected file: "
+                f"{checkpoint_file}"
+            )
+        self._record(
+            "checkpoint",
+            domain,
+            {"checkpoint_file": str(checkpoint_file)},
+        )
+        return checkpoint_file
+
     def backup(self, domain: str) -> Path:
         backup_file = self.backup_file(domain)
         backup_file.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +244,16 @@ class CommandMemoryLifecycle:
             or "@backup_dir@/@plugin@-global-@domain@-@run_date@-@run_id@.tar.gz"
         )
         rendered = self._render(template, domain, backup_file="")
+        return self._path(rendered)
+
+    def resume_file(self, domain: str) -> Path:
+        template = self.config.get("resume_file_template")
+        if not template:
+            raise RuntimeError(
+                f"Memory plugin {self.plugin!r} does not support safe evaluation resume: "
+                "resume_file_template is not configured"
+            )
+        rendered = self._render(str(template), domain, backup_file="")
         return self._path(rendered)
 
     def _validate_configuration(self) -> None:

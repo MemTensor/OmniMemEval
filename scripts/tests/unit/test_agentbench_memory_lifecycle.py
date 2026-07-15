@@ -23,6 +23,7 @@ def _config(tmp_path: Path, *, agent: str = "hermes") -> dict:
         "backup_dir": str(tmp_path / "backups"),
         "backup_file_template": "@backup_dir@/trained-@run_id@.db",
         "global_backup_file_template": "@backup_dir@/global-@run_id@.db",
+        "resume_file_template": "@backup_dir@/resume-@run_id@.db",
         "env": {
             home_key: f"@run_dir@/runtime/{home_name}",
             "PLUGIN_HOME": f"${home_key}/plugin",
@@ -33,6 +34,7 @@ def _config(tmp_path: Path, *, agent: str = "hermes") -> dict:
             "wait_settle": 'printf %s "$OMNIMEMEVAL_EXPECTED_TRIALS" > "@run_dir@/expected"',
             "backup": 'printf trained > "@backup_file@"',
             "restore": "true",
+            "checkpoint": 'printf checkpoint > "@backup_file@"',
             "cleanup": "true",
             "finalize": "true",
         },
@@ -75,6 +77,15 @@ def test_global_snapshot_uses_an_independent_file_and_expected_trials_env(tmp_pa
     assert global_file.read_text(encoding="utf-8") == "global"
     assert trained_file.read_text(encoding="utf-8") == "trained"
     assert (tmp_path / "run" / "expected").read_text(encoding="utf-8") == "5"
+
+
+def test_checkpoint_uses_stable_resume_file(tmp_path):
+    lifecycle = _lifecycle(tmp_path)
+
+    checkpoint = lifecycle.checkpoint("reasoning")
+
+    assert checkpoint == tmp_path / "backups" / "resume-run-1.db"
+    assert checkpoint.read_text(encoding="utf-8") == "checkpoint"
 
 
 def test_runtime_env_is_rendered_for_adapters_and_restored_exactly(tmp_path, monkeypatch):
@@ -130,6 +141,9 @@ class _FailingFinalizerLifecycle:
     def cleanup(self, domain, snapshot):
         self.calls.append(("cleanup", domain, snapshot))
 
+    def checkpoint(self, domain):
+        self.calls.append(("checkpoint", domain))
+
     def restore_runtime_env(self):
         self.calls.append(("restore_runtime_env",))
 
@@ -149,6 +163,7 @@ def test_lifecycle_teardown_attempts_cleanup_after_finalize_failure(tmp_path):
 
     assert lifecycle.calls == [
         ("finalize", "reasoning"),
+        ("checkpoint", "reasoning"),
         ("cleanup", "reasoning", snapshot),
         ("restore_runtime_env",),
     ]
@@ -168,6 +183,7 @@ def test_lifecycle_teardown_does_not_hide_primary_interrupt(tmp_path):
 
     assert [call[0] for call in lifecycle.calls] == [
         "finalize",
+        "checkpoint",
         "cleanup",
         "restore_runtime_env",
     ]
@@ -186,6 +202,7 @@ def test_lifecycle_teardown_cleans_run_state_when_snapshot_preparation_failed():
 
     assert lifecycle.calls == [
         ("finalize", "reasoning"),
+        ("checkpoint", "reasoning"),
         ("cleanup", "reasoning", None),
         ("restore_runtime_env",),
     ]
