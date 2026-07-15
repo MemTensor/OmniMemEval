@@ -81,3 +81,21 @@ def test_phase_validation_raises_when_no_tasks_were_selected(tmp_path):
 
     with pytest.raises(RuntimeError, match="no task trials"):
         assert_phase_succeeded(tmp_path)
+
+
+@pytest.mark.parametrize("error", ["Tests timed out (1800s)", "HTTP 503 from verifier"])
+def test_phase_validation_raises_for_verifier_infrastructure_error(tmp_path, error):
+    result = _successful_result()
+    result["verifier_result"] = {"reward": 0.0, "error": error}
+    phase_dir = _write_phase(tmp_path, result)
+
+    with pytest.raises(RuntimeError, match="infrastructure error"):
+        assert_phase_succeeded(phase_dir)
+
+
+def test_phase_validation_accepts_non_infra_verifier_quality_error(tmp_path):
+    result = _successful_result()
+    result["verifier_result"] = {"reward": 0.0, "error": "no_code_extracted"}
+    phase_dir = _write_phase(tmp_path, result)
+
+    assert_phase_succeeded(phase_dir)

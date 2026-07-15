@@ -1,8 +1,12 @@
 kind: memory_lifecycle
 plugin: memos
 agent: hermes
-backup_dir: ~/memos-backups
-backup_file_template: "@backup_dir@/memos-hermes-train-feedback-@domain@-@run_date@-@run_id@.tar.gz"
+
+# Backups are standalone SQLite files.  Credentials and runtime/session state
+# are intentionally never archived.
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/memos-hermes-@domain@-@run_date@-@run_id@.sqlite3"
+global_backup_file_template: "@backup_dir@/user-global-hermes-@run_date@-@run_id@.sqlite3"
 settle_seconds: 0
 
 feedback:
@@ -13,269 +17,340 @@ feedback:
   memos_structured_submit: false
 
 env:
-  HERMES_HOME: "$HOME/.hermes"
-  MEMOS_PLUGIN_HOME: "$HOME/.hermes/memos-plugin"
-  MEMOS_DB: "$HOME/.hermes/memos-plugin/data/memos.db"
+  HERMES_HOME: "@run_dir@/runtime/hermes"
+  # The Node bridge resolves mutable state from MEMOS_HOME.  HERMES_HOME only
+  # controls Hermes' own config/session root.
+  MEMOS_HOME: "@run_dir@/runtime/hermes/memos-plugin"
+  MEMOS_PLUGIN_HOME: "@run_dir@/runtime/hermes/memos-plugin"
+  MEMOS_DB: "@run_dir@/runtime/hermes/memos-plugin/data/memos.db"
   MEMOS_FINALIZE_TIMEOUT: "1800"
-  MEMOS_FINALIZE_IDLE_SECONDS: "30"
-  MEMOS_NO_ACTIVITY_GRACE_SECONDS: "60"
   MEMOS_DAEMON_TERM_TIMEOUT: "300"
-  MEMOS_DAEMON_START_WAIT_SECONDS: "5"
-  MEMOS_CLEAR_SETTLE_SECONDS: "5"
+  MEMOS_DAEMON_START_WAIT_SECONDS: "30"
+  # The daemon only serves the viewer; per-chat stdio bridges own capture.
+  # auto starts it only when :18800 is free, so an unrelated user daemon is
+  # never stopped merely to expose the evaluation viewer.
+  MEMOS_START_DAEMON: "auto"
 
 commands:
   validate: |
     bash <<'BASH'
     set -euo pipefail
-    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HOME/.hermes/memos-plugin}"
-    test -d "$MEMOS_PLUGIN_HOME"
-    test -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs"
+    original="${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?original Hermes home was not captured}"
+    command -v sqlite3 >/dev/null || {
+      echo "sqlite3 is required to verify the Hermes MemOS pipeline" >&2
+      exit 1
+    }
     command -v node >/dev/null
-    command -v tar >/dev/null
+    command -v curl >/dev/null
+    test -d "$original"
+    test -f "$original/config.yaml"
+    test -f "$original/memos-plugin/dist/bridge.cjs"
+    BASH
+
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    original="${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?original Hermes home was not captured}"
+    runtime="${HERMES_HOME:?run-scoped HERMES_HOME is required}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    source_plugin="$original/memos-plugin"
+    source_db="$source_plugin/data/memos.db"
+    snapshot="@backup_file@"
+
+    case "$snapshot" in *"'"*) echo "snapshot path cannot contain a single quote" >&2; exit 1;; esac
+    mkdir -p "$(dirname "$snapshot")"
+    chmod 700 "$(dirname "$snapshot")"
+    rm -f "$snapshot" "$snapshot.tmp"
+    if [ -f "$source_db" ]; then
+      sqlite3 -cmd ".timeout 30000" "$source_db" ".backup '$snapshot.tmp'"
+      test "$(sqlite3 "$snapshot.tmp" 'PRAGMA quick_check;')" = "ok"
+      mv "$snapshot.tmp" "$snapshot"
+    else
+      sqlite3 "$snapshot.tmp" 'PRAGMA user_version=0;'
+      mv "$snapshot.tmp" "$snapshot"
+    fi
+    chmod 600 "$snapshot"
+
+    rm -rf "$runtime"
+    mkdir -p "$runtime" "$plugin/data" "$plugin/logs" "$plugin/daemon" \
+      "$plugin/memos-local" "$plugin/skills"
+    install -m 600 "$original/config.yaml" "$runtime/config.yaml"
+    for file in auth.json .env; do
+      [ -f "$original/$file" ] && install -m 600 "$original/$file" "$runtime/$file"
+    done
+
+    # Symlink immutable code/dependencies, but copy top-level config/auth files
+    # and keep every mutable state directory private to this run.
+    while IFS= read -r -d '' entry; do
+      name="${entry##*/}"
+      case "$name" in data|logs|daemon|memos-local|skills|bridge-status.json) continue;; esac
+      if [ -d "$entry" ]; then
+        ln -s "$entry" "$plugin/$name"
+      else
+        cp -p "$entry" "$plugin/$name"
+      fi
+    done < <(find "$source_plugin" -mindepth 1 -maxdepth 1 -print0)
+    chmod 600 "$plugin/config.yaml" "$plugin/.auth.json" 2>/dev/null || true
     BASH
 
   clear: |
     bash <<'BASH'
     set -euo pipefail
-    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
-    MEMOS_DAEMON_TERM_TIMEOUT="${MEMOS_DAEMON_TERM_TIMEOUT:-300}"
-    MEMOS_DAEMON_START_WAIT_SECONDS="${MEMOS_DAEMON_START_WAIT_SECONDS:-5}"
-    MEMOS_CLEAR_SETTLE_SECONDS="${MEMOS_CLEAR_SETTLE_SECONDS:-5}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    case "$plugin" in "@run_dir@"/runtime/hermes/memos-plugin) ;; *)
+      echo "refusing to clear non-run-scoped plugin home: $plugin" >&2; exit 1;;
+    esac
 
-    require_memos_plugin() {
-      test -d "$MEMOS_PLUGIN_HOME"
-      test -f "$MEMOS_PLUGIN_HOME/dist/bridge.cjs"
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+      done
     }
-
-    memos_pids() {
-      local pid comm args
-      while read -r pid; do
-        [ -n "$pid" ] || continue
-        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
-        case "$comm" in
-          node|nodejs) ;;
-          *) continue ;;
-        esac
-        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-        case "$args" in
-          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
-        esac
-      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
-    }
-
-    memos_daemon_pids() {
-      local pid args
-      while read -r pid; do
-        [ -n "$pid" ] || continue
-        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-        case "$args" in
-          *--daemon*) echo "$pid" ;;
-        esac
-      done < <(memos_pids)
-    }
-
-    stop_memos_plugin() {
-      local pids
-      pids="$(memos_pids)"
-      [ -z "$pids" ] && return 0
-      while read -r pid; do
-        [ -z "$pid" ] && continue
-        [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
-      done <<<"$pids"
-      for _ in $(seq 1 "$MEMOS_DAEMON_TERM_TIMEOUT"); do
-        [ -z "$(memos_pids)" ] && return 0
+    stop_runtime() {
+      for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+      for _ in $(seq 1 "${MEMOS_DAEMON_TERM_TIMEOUT:-300}"); do
+        [ -z "$(runtime_pids)" ] && return 0
         sleep 1
       done
-      while read -r pid; do
-        [ -z "$pid" ] && continue
-        [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -KILL "$pid" 2>/dev/null || true
-      done <<<"$(memos_pids)"
+      for pid in $(runtime_pids); do kill -KILL "$pid" 2>/dev/null || true; done
+      [ -z "$(runtime_pids)" ]
     }
-
-    start_memos_daemon() {
-      if [ -n "$(memos_daemon_pids)" ]; then
-        return 0
+    start_daemon_if_safe() {
+      mode="${MEMOS_START_DAEMON:-auto}"
+      [ "$mode" != "0" ] && [ "$mode" != "false" ] || return 0
+      # /ping may require viewer authentication and return 401 even while a
+      # user's daemon owns the port.  /health is deliberately unauthenticated.
+      if curl -fsS --max-time 1 http://127.0.0.1:18800/api/v1/health >/dev/null 2>&1; then
+        if [ "$mode" = "auto" ]; then
+          echo "Hermes viewer :18800 is owned externally; leaving it untouched and running evaluation headless."
+          return 0
+        fi
+        echo "Hermes viewer port :18800 is occupied by a non-run process" >&2
+        return 1
       fi
-      mkdir -p "$MEMOS_PLUGIN_HOME/logs" "$MEMOS_PLUGIN_HOME/daemon"
-      (
-        cd "$MEMOS_PLUGIN_HOME"
-        nohup node "$MEMOS_PLUGIN_HOME/dist/bridge.cjs" --agent=hermes --daemon \
-          >>"$MEMOS_PLUGIN_HOME/logs/daemon-start.log" 2>&1 &
-        echo "$!" >"$MEMOS_PLUGIN_HOME/daemon/bridge.pid"
-      )
-      sleep "$MEMOS_DAEMON_START_WAIT_SECONDS"
+      nohup node "$plugin/dist/bridge.cjs" --agent=hermes --daemon \
+        >>"$plugin/logs/daemon.log" 2>&1 &
+      daemon_pid=$!
+      echo "$daemon_pid" >"$plugin/daemon/bridge.pid"
+      deadline=$((SECONDS + ${MEMOS_DAEMON_START_WAIT_SECONDS:-30}))
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        kill -0 "$daemon_pid" 2>/dev/null || { echo "run-scoped Hermes daemon exited during startup" >&2; return 1; }
+        health="$(curl -fsS --max-time 2 http://127.0.0.1:18800/api/v1/health 2>/dev/null || true)"
+        case "$health" in *'"agent":"hermes"'*"$db"*) return 0;; esac
+        sleep 1
+      done
+      echo "run-scoped Hermes daemon failed its health check" >&2
+      return 1
     }
 
-    require_memos_plugin
-    stop_memos_plugin
-    rm -rf "$MEMOS_PLUGIN_HOME/data"
-    mkdir -p "$MEMOS_PLUGIN_HOME/data"
-    rm -f "$MEMOS_PLUGIN_HOME/memos-local/.session" \
-          "$MEMOS_PLUGIN_HOME/bridge-status.json" \
-          "$MEMOS_PLUGIN_HOME/daemon/headless-bridges.json"
-    start_memos_daemon
-    sleep "$MEMOS_CLEAR_SETTLE_SECONDS"
+    stop_runtime
+    rm -rf "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
+    rm -f "$plugin/bridge-status.json"
+    mkdir -p "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
+    rm -f "$db" "$db-wal" "$db-shm"
+    start_daemon_if_safe
     BASH
 
   wait_settle: |
     bash <<'BASH'
     set -euo pipefail
-    MEMOS_DB="${MEMOS_DB:-$HOME/.hermes/memos-plugin/data/memos.db}"
-    MEMOS_FINALIZE_TIMEOUT="${MEMOS_FINALIZE_TIMEOUT:-1800}"
-    MEMOS_FINALIZE_IDLE_SECONDS="${MEMOS_FINALIZE_IDLE_SECONDS:-30}"
-    MEMOS_NO_ACTIVITY_GRACE_SECONDS="${MEMOS_NO_ACTIVITY_GRACE_SECONDS:-60}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    expected="${OMNIMEMEVAL_EXPECTED_TRIALS:?expected trial count is required}"
+    timeout="${MEMOS_FINALIZE_TIMEOUT:-1800}"
+    term_timeout="${MEMOS_DAEMON_TERM_TIMEOUT:-300}"
+    command -v sqlite3 >/dev/null || {
+      echo "sqlite3 is required to verify the Hermes MemOS pipeline" >&2
+      exit 1
+    }
+    case "$expected" in ''|*[!0-9]*) echo "invalid expected trial count: $expected" >&2; exit 1;; esac
+    [ "$expected" -gt 0 ] || { echo "expected trial count must be positive" >&2; exit 1; }
 
-    if [ ! -f "$MEMOS_DB" ]; then
-      echo "No Hermes memos database found before backup; skipping finalize wait."
-      exit 0
-    fi
-    if ! command -v sqlite3 >/dev/null 2>&1; then
-      echo "sqlite3 not found; cannot inspect memos pipeline before backup."
-      exit 0
-    fi
-
-    sqlite_scalar() {
-      sqlite3 -cmd ".timeout 30000" "$MEMOS_DB" "$1" 2>/dev/null || echo 0
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+      done
+    }
+    schema_ready() {
+      [ -s "$db" ] || return 1
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue');")" = "4" ]
+    }
+    episode_gate() {
+      local closed total empty
+      closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
+      total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
+      empty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE trace_ids_json='[]';")"
+      [ "$closed" -eq "$expected" ] && [ "$total" -eq "$expected" ] && [ "$empty" -eq 0 ]
     }
 
-    latest_pipeline_ms() {
-      sqlite_scalar "
-        SELECT COALESCE(MAX(called_at), 0)
-        FROM api_logs
-        WHERE
-          (
-            tool_name = 'memory_add'
-            AND (
-              output_json LIKE '%\"phase\":\"reflect\"%'
-              OR output_json LIKE '%phase=reflect%'
-            )
-          )
-          OR (
-            tool_name = 'system_model_status'
-            AND (
-              input_json LIKE '%\"phase\":\"reflect\"%'
-              OR input_json LIKE '%\"phase\":\"reward\"%'
-              OR input_json LIKE '%\"phase\":\"l2\"%'
-              OR input_json LIKE '%\"phase\":\"l3\"%'
-              OR input_json LIKE '%\"phase\":\"skill\"%'
-              OR output_json LIKE '%\"phase\":\"reflect\"%'
-              OR output_json LIKE '%\"phase\":\"reward\"%'
-              OR output_json LIKE '%\"phase\":\"l2\"%'
-              OR output_json LIKE '%\"phase\":\"l3\"%'
-              OR output_json LIKE '%\"phase\":\"skill\"%'
-            )
-          );
-      "
-    }
+    # First wait until every expected episode is durably closed.  Then request
+    # graceful shutdown from every bridge belonging to this run.  MemOS
+    # core.shutdown drains reward/reflection/L2/L3 subscribers, so process exit
+    # is the reliable in-memory pending/inflight barrier that log silence was not.
+    # Training calls have already returned, so a missing/empty DB or missing
+    # schema cannot become valid through a still-running model request.  Fail
+    # immediately instead of spending the whole settle timeout on bad state.
+    [ -s "$db" ] || { echo "Hermes MemOS DB is missing or empty: $db" >&2; exit 1; }
+    schema_ready || { echo "Hermes MemOS DB is missing required pipeline tables" >&2; exit 1; }
 
-    deadline=$((SECONDS + MEMOS_FINALIZE_TIMEOUT))
-    latest_seen=0
-    stable_since=$SECONDS
+    deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-      latest_ms="$(latest_pipeline_ms)"
-      latest_ms="${latest_ms:-0}"
-      if [ "$latest_ms" != "$latest_seen" ]; then
-        latest_seen="$latest_ms"
-        stable_since=$SECONDS
-      fi
-      if [ "$latest_seen" != "0" ] && [ $((SECONDS - stable_since)) -ge "$MEMOS_FINALIZE_IDLE_SECONDS" ]; then
-        exit 0
-      fi
-      if [ "$latest_seen" = "0" ] && [ $((SECONDS - stable_since)) -ge "$MEMOS_NO_ACTIVITY_GRACE_SECONDS" ]; then
-        exit 0
-      fi
+      if schema_ready && episode_gate; then break; fi
       sleep 5
     done
-    echo "Hermes memos pipeline did not become idle before timeout." >&2
-    exit 1
+    schema_ready || { echo "Hermes MemOS DB/schema was not created" >&2; exit 1; }
+    episode_gate || { echo "Hermes MemOS expected exactly $expected closed non-empty episodes" >&2; exit 1; }
+
+    for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+    shutdown_deadline=$((SECONDS + term_timeout))
+    while [ "$SECONDS" -lt "$shutdown_deadline" ]; do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
+    done
+    [ -z "$(runtime_pids)" ] || {
+      echo "Hermes MemOS bridges did not drain and stop gracefully; refusing to back up" >&2
+      exit 1
+    }
+
+    schema_ready
+    episode_gate
+    queued="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
+    [ "$queued" -eq 0 ] || { echo "Hermes MemOS still has $queued pending/inflight embedding jobs" >&2; exit 1; }
+    test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
     BASH
 
   backup: |
     bash <<'BASH'
     set -euo pipefail
-    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
-    MEMOS_DB="${MEMOS_DB:-$MEMOS_PLUGIN_HOME/data/memos.db}"
-    paths=()
-
-    memos_pids() {
-      local pid comm args
-      while read -r pid; do
-        [ -n "$pid" ] || continue
-        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
-        case "$comm" in
-          node|nodejs) ;;
-          *) continue ;;
-        esac
-        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-        case "$args" in
-          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
-        esac
-      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
-    }
-
-    test -d "$MEMOS_PLUGIN_HOME"
-    if [ -f "$MEMOS_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
-      sqlite3 "$MEMOS_DB" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null || true
-    fi
-    pids="$(memos_pids)"
-    for pid in $pids; do
-      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
-    done
-    sleep 1
-
-    [ -d "$MEMOS_PLUGIN_HOME/data" ] && paths+=("memos-plugin/data")
-    [ -f "$MEMOS_PLUGIN_HOME/config.yaml" ] && paths+=("memos-plugin/config.yaml")
-    [ -f "$MEMOS_PLUGIN_HOME/.auth.json" ] && paths+=("memos-plugin/.auth.json")
-    [ -d "$MEMOS_PLUGIN_HOME/memos-local" ] && paths+=("memos-plugin/memos-local")
-    [ -f "$MEMOS_PLUGIN_HOME/bridge-status.json" ] && paths+=("memos-plugin/bridge-status.json")
-    if [ "${#paths[@]}" -eq 0 ]; then
-      echo "No Hermes memos paths found to back up." >&2
-      exit 1
-    fi
-    mkdir -p "$(dirname "@backup_file@")"
-    tar -czf "@backup_file@" -C "$HERMES_HOME" "${paths[@]}"
+    umask 077
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    dest="@backup_file@"
+    command -v sqlite3 >/dev/null
+    test -s "$db"
+    case "$dest" in *"'"*) echo "backup path cannot contain a single quote" >&2; exit 1;; esac
+    mkdir -p "$(dirname "$dest")"
+    chmod 700 "$(dirname "$dest")"
+    rm -f "$dest" "$dest.tmp"
+    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$dest.tmp'"
+    test "$(sqlite3 "$dest.tmp" 'PRAGMA quick_check;')" = "ok"
+    mv "$dest.tmp" "$dest"
+    chmod 600 "$dest"
     BASH
 
   restore: |
     bash <<'BASH'
     set -euo pipefail
-    HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-    MEMOS_PLUGIN_HOME="${MEMOS_PLUGIN_HOME:-$HERMES_HOME/memos-plugin}"
-    MEMOS_DAEMON_START_WAIT_SECONDS="${MEMOS_DAEMON_START_WAIT_SECONDS:-5}"
-    test -f "@backup_file@"
-    test -d "$MEMOS_PLUGIN_HOME"
+    umask 077
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    source="@backup_file@"
+    case "$plugin" in "@run_dir@"/runtime/hermes/memos-plugin) ;; *)
+      echo "refusing to restore into non-run-scoped plugin home: $plugin" >&2; exit 1;;
+    esac
+    command -v sqlite3 >/dev/null
+    test -s "$source"
+    test "$(sqlite3 "$source" 'PRAGMA quick_check;')" = "ok"
 
-    memos_pids() {
-      local pid comm args
-      while read -r pid; do
-        [ -n "$pid" ] || continue
-        comm="$(ps -p "$pid" -o comm= 2>/dev/null | xargs || true)"
-        case "$comm" in
-          node|nodejs) ;;
-          *) continue ;;
-        esac
-        args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-        case "$args" in
-          *memos-plugin/dist/bridge.cjs*--agent=hermes*) echo "$pid" ;;
-        esac
-      done < <(pgrep -f "memos-plugin/dist/bridge.cjs.*--agent=hermes" 2>/dev/null || true)
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+      done
     }
+    stop_runtime() {
+      for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+      deadline=$((SECONDS + ${MEMOS_DAEMON_TERM_TIMEOUT:-300}))
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        [ -z "$(runtime_pids)" ] && return 0
+        sleep 1
+      done
+      echo "run-scoped Hermes bridges did not stop before restore" >&2
+      return 1
+    }
+    start_daemon_if_safe() {
+      mode="${MEMOS_START_DAEMON:-auto}"
+      [ "$mode" != "0" ] && [ "$mode" != "false" ] || return 0
+      if curl -fsS --max-time 1 http://127.0.0.1:18800/api/v1/health >/dev/null 2>&1; then
+        if [ "$mode" = "auto" ]; then
+          echo "Hermes viewer :18800 is owned externally; leaving it untouched and running evaluation headless."
+          return 0
+        fi
+        echo "Hermes viewer port :18800 is occupied by a non-run process" >&2
+        return 1
+      fi
+      mkdir -p "$plugin/logs" "$plugin/daemon"
+      nohup node "$plugin/dist/bridge.cjs" --agent=hermes --daemon \
+        >>"$plugin/logs/daemon.log" 2>&1 &
+      daemon_pid=$!
+      echo "$daemon_pid" >"$plugin/daemon/bridge.pid"
+      deadline=$((SECONDS + ${MEMOS_DAEMON_START_WAIT_SECONDS:-30}))
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        kill -0 "$daemon_pid" 2>/dev/null || { echo "run-scoped Hermes daemon exited during startup" >&2; return 1; }
+        health="$(curl -fsS --max-time 2 http://127.0.0.1:18800/api/v1/health 2>/dev/null || true)"
+        case "$health" in *'"agent":"hermes"'*"$db"*) return 0;; esac
+        sleep 1
+      done
+      echo "run-scoped Hermes daemon failed its health check" >&2
+      return 1
+    }
+    stop_runtime
+    mkdir -p "$(dirname "$db")"
+    rm -f "$db" "$db-wal" "$db-shm" "$db.tmp"
+    case "$db" in *"'"*) echo "database path cannot contain a single quote" >&2; exit 1;; esac
+    sqlite3 "$source" ".backup '$db.tmp'"
+    mv "$db.tmp" "$db"
+    chmod 600 "$db"
+    start_daemon_if_safe
+    BASH
 
-    pids="$(memos_pids)"
-    for pid in $pids; do
-      [ "$pid" = "$$" ] || [ "$pid" = "$BASHPID" ] || kill -TERM "$pid" 2>/dev/null || true
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    runtime="${HERMES_HOME:?run-scoped HERMES_HOME is required}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    case "$runtime" in "@run_dir@"/runtime/hermes) ;; *)
+      echo "refusing to clean non-run-scoped Hermes home: $runtime" >&2; exit 1;;
+    esac
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+      done
+    }
+    for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+    deadline=$((SECONDS + ${MEMOS_DAEMON_TERM_TIMEOUT:-300}))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
     done
-    sleep 1
-    rm -rf "$MEMOS_PLUGIN_HOME/data"
-    tar -xzf "@backup_file@" -C "$HERMES_HOME"
-    mkdir -p "$MEMOS_PLUGIN_HOME/logs" "$MEMOS_PLUGIN_HOME/daemon"
-    (
-      cd "$MEMOS_PLUGIN_HOME"
-      nohup node "$MEMOS_PLUGIN_HOME/dist/bridge.cjs" --agent=hermes --daemon \
-        >>"$MEMOS_PLUGIN_HOME/logs/daemon-start.log" 2>&1 &
-      echo "$!" >"$MEMOS_PLUGIN_HOME/daemon/bridge.pid"
-    )
-    sleep "$MEMOS_DAEMON_START_WAIT_SECONDS"
+    [ -z "$(runtime_pids)" ] || { echo "run-scoped Hermes bridges survived cleanup" >&2; exit 1; }
+    rm -rf "$runtime"
     BASH

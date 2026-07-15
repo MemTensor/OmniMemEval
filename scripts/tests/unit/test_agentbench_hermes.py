@@ -1,7 +1,9 @@
 import json
 import os
+import signal
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -81,6 +83,51 @@ print("answer:" + query[:16])
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def _write_hanging_process_tree(path: Path) -> None:
+    path.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+home = Path(os.environ["HERMES_HOME"])
+child = subprocess.Popen([
+    sys.executable,
+    "-c",
+    "import time; time.sleep(60)",
+])
+(home / "tree-pids.json").write_text(json.dumps({
+    "parent": os.getpid(),
+    "parent_pgid": os.getpgrp(),
+    "child": child.pid,
+    "child_pgid": os.getpgid(child.pid),
+}), encoding="utf-8")
+
+def shutdown(_signum, _frame):
+    child.wait(timeout=5)
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, shutdown)
+while True:
+    time.sleep(1)
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _process_is_live(pid: int) -> bool:
+    try:
+        state = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8").split()[2]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    return state != "Z"
 
 
 def _materialize_hermes_config(
@@ -329,6 +376,60 @@ def test_hermes_feedback_resumes_real_hermes_session(tmp_path, monkeypatch):
     assert stats["input"] == 11
     assert stats["output"] == 7
     assert (trial_dir / "session.jsonl").exists()
+
+
+def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_global_hermes_config(tmp_path)
+    fake_hermes = tmp_path / "hanging-hermes"
+    _write_hanging_process_tree(fake_hermes)
+
+    agent = HermesAgentAdapter({
+        "command": str(fake_hermes),
+        "runtime": {
+            "cli_timeout_grace_seconds": 0,
+            "cli_terminate_grace_seconds": 0.5,
+        },
+    })
+    session = agent.build_session_spec(
+        phase="test",
+        domain="reasoning",
+        split="test",
+        task={"name": "omni_timeout"},
+        trial=1,
+    )
+    agent.prepare_task({"name": "omni_timeout"}, {}, session)
+
+    pids: dict[str, int] = {}
+    try:
+        result = agent.call("hang", session, timeout=0.3)
+        pids = json.loads(
+            (Path(agent._temp_home) / "tree-pids.json").read_text(encoding="utf-8")
+        )
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and any(
+            _process_is_live(pids[key]) for key in ("parent", "child")
+        ):
+            time.sleep(0.05)
+        live_pids = [
+            pids[key]
+            for key in ("parent", "child")
+            if _process_is_live(pids[key])
+        ]
+    finally:
+        for key in ("parent", "child"):
+            pid = pids.get(key)
+            if pid and _process_is_live(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        agent.cleanup_task()
+
+    assert result["completion_status"] == "timeout"
+    assert pids["parent_pgid"] == pids["parent"]
+    assert pids["child_pgid"] == pids["parent"]
+    assert live_pids == []
 
 
 def test_hermes_home_links_are_relative(tmp_path, monkeypatch):

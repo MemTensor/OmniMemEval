@@ -223,6 +223,41 @@ def _apply_memory_parallel_limit(args: argparse.Namespace, memory_config: dict |
         args.parallel = max_parallel
 
 
+def _finish_memory_lifecycle(
+    lifecycle: CommandMemoryLifecycle,
+    *,
+    domain: str,
+    global_snapshot: Path | None,
+    runtime_env_active: bool,
+    primary_error: BaseException | None,
+) -> None:
+    """Attempt all teardown stages while preserving the benchmark exception."""
+
+    deferred_cleanup_error: BaseException | None = None
+    finalizers = [("finalize", lambda: lifecycle.finalize(domain))]
+    if runtime_env_active:
+        finalizers.append(
+            ("cleanup", lambda: lifecycle.cleanup(domain, global_snapshot))
+        )
+        finalizers.append(("restore_runtime_env", lifecycle.restore_runtime_env))
+
+    for label, finalizer in finalizers:
+        try:
+            finalizer()
+        except BaseException as exc:
+            if primary_error is None and deferred_cleanup_error is None:
+                deferred_cleanup_error = exc
+            else:
+                print(
+                    f"WARNING: memory lifecycle {label} failed during cleanup: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    if primary_error is None and deferred_cleanup_error is not None:
+        raise deferred_cleanup_error
+
+
 def main() -> None:
     args = parse_args()
     if args.trials < 1:
@@ -373,6 +408,7 @@ def main() -> None:
             args=args,
             task=args.test_task or args.task,
         )
+        assert_phase_succeeded(run_dir / "test")
     elif args.protocol == "train_then_test":
         run_phase(
             phase="train",
@@ -397,6 +433,7 @@ def main() -> None:
             args=args,
             task=args.test_task or args.task,
         )
+        assert_phase_succeeded(run_dir / "test")
     else:
         assert memory_config is not None
         lifecycle = CommandMemoryLifecycle(
@@ -406,42 +443,67 @@ def main() -> None:
             run_id=version,
             version=version,
         )
-        lifecycle.validate(args.domain)
-        lifecycle.set_mode("train", args.domain)
-        lifecycle.clear(args.domain)
-        run_phase(
-            phase="train",
-            split=args.train_split,
-            phase_dir=run_dir / "train",
-            domain=make_domain(),
-            agent_factory=agent_factory,
-            args=args,
-            task=args.train_task or args.task,
-        )
-        assert_phase_succeeded(
-            run_dir / "train",
-            require_feedback=args.train_feedback,
-            require_plugin_feedback=args.plugin_structured_feedback,
-        )
-        lifecycle.wait_settle(args.domain)
-        backup_file = lifecycle.backup(args.domain)
-
-        for run_no in range(1, args.test_runs + 1):
-            lifecycle.set_mode("test", args.domain)
-            # Always restore before a test run.  This keeps test writes from
-            # polluting later runs even when a plugin can disable writes.
-            lifecycle.restore(args.domain, backup_file)
-            phase_name = f"test_run_{run_no}"
-            run_phase(
-                phase=phase_name,
-                split=args.test_split,
-                phase_dir=run_dir / phase_name,
+        global_snapshot = None
+        runtime_env_active = False
+        primary_error: BaseException | None = None
+        try:
+            lifecycle.activate_runtime_env()
+            runtime_env_active = True
+            lifecycle.validate(args.domain)
+            global_snapshot = lifecycle.prepare_global_snapshot(args.domain)
+            lifecycle.set_mode("train", args.domain)
+            lifecycle.clear(args.domain)
+            train_summary = run_phase(
+                phase="train",
+                split=args.train_split,
+                phase_dir=run_dir / "train",
                 domain=make_domain(),
                 agent_factory=agent_factory,
                 args=args,
-                task=args.test_task or args.task,
+                task=args.train_task or args.task,
             )
-        lifecycle.finalize(args.domain)
+            assert_phase_succeeded(
+                run_dir / "train",
+                require_feedback=args.train_feedback,
+                require_plugin_feedback=args.plugin_structured_feedback,
+            )
+            lifecycle.wait_settle(
+                args.domain,
+                expected_trials=int(train_summary["total_trials"]),
+            )
+            backup_file = lifecycle.backup(args.domain)
+
+            for run_no in range(1, args.test_runs + 1):
+                lifecycle.set_mode("test", args.domain)
+                # Always restore before a test run.  This keeps test writes from
+                # polluting later runs even when a plugin can disable writes.
+                lifecycle.restore(args.domain, backup_file)
+                phase_name = f"test_run_{run_no}"
+                run_phase(
+                    phase=phase_name,
+                    split=args.test_split,
+                    phase_dir=run_dir / phase_name,
+                    domain=make_domain(),
+                    agent_factory=agent_factory,
+                    args=args,
+                    task=args.test_task or args.task,
+                )
+                assert_phase_succeeded(run_dir / phase_name)
+        except BaseException as exc:
+            primary_error = exc
+            raise
+        finally:
+            # Stop run-owned processes before removing the run-scoped home.
+            # The global snapshot is retained as disaster recovery material.
+            # Attempt every cleanup operation, but never hide the exception
+            # that interrupted the benchmark itself.
+            _finish_memory_lifecycle(
+                lifecycle,
+                domain=args.domain,
+                global_snapshot=global_snapshot,
+                runtime_env_active=runtime_env_active,
+                primary_error=primary_error,
+            )
 
     print(f"\nResults written to {run_dir}")
 

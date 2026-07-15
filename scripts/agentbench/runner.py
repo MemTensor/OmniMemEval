@@ -14,7 +14,7 @@ from agentbench.plugin_feedback import normalize_plugin_feedback_backend
 from agentbench.plugin_feedback import should_submit_plugin_feedback
 from agentbench.plugin_feedback import submit_plugin_feedback_artifact
 from agentbench.plugin_feedback import submit_plugin_structured_feedback
-from agentbench.summary import build_summary
+from agentbench.summary import build_summary, classify_failure
 
 
 def assert_phase_succeeded(
@@ -67,6 +67,17 @@ def assert_phase_succeeded(
         agent_status = (result.get("agent_result") or {}).get("completion_status")
         if agent_status != "completed":
             failures.append(f"{label}: agent completion_status={agent_status!r}")
+
+        verifier_result = result.get("verifier_result") or {}
+        try:
+            reward = float(verifier_result.get("reward", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            reward = 0.0
+        if classify_failure(result, reward) == "infra_error":
+            failures.append(
+                f"{label}: infrastructure error: "
+                f"{verifier_result.get('error') or (result.get('agent_result') or {}).get('error')}"
+            )
 
         if require_feedback:
             feedback_status = (result.get("feedback_result") or {}).get("completion_status")

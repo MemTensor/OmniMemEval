@@ -1,13 +1,20 @@
 kind: memory_lifecycle
 plugin: memos
 agent: openclaw
-backup_dir: ~/memos-backups
-backup_file_template: "@backup_dir@/memos-openclaw-gateway-feedback-@domain@-@run_date@-@run_id@.tar.gz"
-settle_seconds: 1800
+
+# Both the trained-memory backup and the user's pre-run safety snapshot are
+# SQLite online backups.  They deliberately contain no plugin config, auth,
+# session, log, skill, WAL, or SHM files.
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/memos-openclaw-@domain@-@run_date@-@run_id@.sqlite3"
+global_backup_file_template: "@backup_dir@/user-global-openclaw-@run_date@-@run_id@.sqlite3"
+settle_seconds: 0
+
 execution:
   capture_mode: manual_after_feedback
   max_parallel: 12
   capture_parallel: 1
+
 feedback:
   enabled: true
   timeout: 300
@@ -16,151 +23,262 @@ feedback:
   submit_timeout: 900
   memos_structured_submit: true
   memos_submit_timeout: 900
+
 env:
-  OPENCLAW_HOME: "$HOME/.openclaw"
-  MEMOS_VIEWER_PORT: "18799"
+  # The protocol saves OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME before activating
+  # this run-scoped home.  The adapter also uses the source override below
+  # when it creates each isolated per-trial home.
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
+  # MemOS resolves its database from MEMOS_HOME (not OPENCLAW_HOME or the
+  # lifecycle-only MEMOS_PLUGIN_HOME variable).
+  MEMOS_HOME: "@run_dir@/runtime/openclaw/memos-plugin"
+  MEMOS_PLUGIN_HOME: "@run_dir@/runtime/openclaw/memos-plugin"
+  MEMOS_DB: "@run_dir@/runtime/openclaw/memos-plugin/data/memos.db"
+  MEMOS_FINALIZE_TIMEOUT: "1800"
+  MEMOS_DAEMON_TERM_TIMEOUT: "300"
 
 commands:
+  validate: |
+    bash <<'BASH'
+    set -euo pipefail
+    original="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?original OpenClaw home was not captured}"
+    command -v sqlite3 >/dev/null
+    command -v node >/dev/null
+    test -d "$original"
+    test -f "$original/openclaw.json"
+    test -d "$original/extensions/memos-local-plugin"
+    test -d "$original/memos-plugin"
+    BASH
+
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    original="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?original OpenClaw home was not captured}"
+    runtime="${OPENCLAW_HOME:?run-scoped OPENCLAW_HOME is required}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    source_plugin="$original/memos-plugin"
+    source_db="$source_plugin/data/memos.db"
+    snapshot="@backup_file@"
+
+    case "$snapshot" in *"'"*) echo "snapshot path cannot contain a single quote" >&2; exit 1;; esac
+    mkdir -p "$(dirname "$snapshot")"
+    chmod 700 "$(dirname "$snapshot")"
+    rm -f "$snapshot" "$snapshot.tmp"
+    if [ -f "$source_db" ]; then
+      sqlite3 -cmd ".timeout 30000" "$source_db" ".backup '$snapshot.tmp'"
+      test "$(sqlite3 "$snapshot.tmp" 'PRAGMA quick_check;')" = "ok"
+      mv "$snapshot.tmp" "$snapshot"
+    else
+      # An empty, valid SQLite snapshot records that the user had no MemOS DB.
+      sqlite3 "$snapshot.tmp" 'PRAGMA user_version=0;'
+      mv "$snapshot.tmp" "$snapshot"
+    fi
+    chmod 600 "$snapshot"
+
+    # Build a private run home.  Only immutable plugin code is symlinked from
+    # the installation; all mutable MemOS state lives below the run directory.
+    rm -rf "$runtime"
+    mkdir -p "$runtime/extensions" "$plugin/data" "$plugin/logs" \
+      "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
+    install -m 600 "$original/openclaw.json" "$runtime/openclaw.json"
+    ln -s "$original/extensions/memos-local-plugin" "$runtime/extensions/memos-local-plugin"
+    if [ -e "$original/npm" ]; then ln -s "$original/npm" "$runtime/npm"; fi
+
+    while IFS= read -r -d '' entry; do
+      name="${entry##*/}"
+      case "$name" in data|logs|daemon|memos-local|skills|memos.db) continue;; esac
+      if [ -d "$entry" ]; then
+        ln -s "$entry" "$plugin/$name"
+      else
+        cp -p "$entry" "$plugin/$name"
+      fi
+    done < <(find "$source_plugin" -mindepth 1 -maxdepth 1 -print0)
+    chmod 600 "$plugin/config.yaml" "$plugin/.auth.json" "$plugin/configbk.yaml" 2>/dev/null || true
+    BASH
+
   clear: |
     bash <<'BASH'
     set -euo pipefail
-    OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
-    MEMOS_PLUGIN_HOME="$OPENCLAW_HOME/memos-plugin"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    case "$plugin" in "@run_dir@"/runtime/openclaw/memos-plugin) ;; *)
+      echo "refusing to clear non-run-scoped plugin home: $plugin" >&2; exit 1;;
+    esac
 
     runtime_pids() {
-      {
-        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
-        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
-        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
-      } | awk 'NF && !seen[$0]++'
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+      done
     }
+    pids="$(runtime_pids)"
+    for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
+    for _ in $(seq 1 "${MEMOS_DAEMON_TERM_TIMEOUT:-300}"); do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
+    done
+    pids="$(runtime_pids)"
+    for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+    [ -z "$(runtime_pids)" ] || { echo "run-scoped MemOS processes survived clear" >&2; exit 1; }
 
-    is_self_pid() {
-      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
-    }
-
-    stop_memos_runtime() {
-      openclaw gateway stop 2>/dev/null || true
-      sleep 0.5
-      mapfile -t pids < <(runtime_pids)
-      for pid in "${pids[@]}"; do
-        is_self_pid "$pid" && continue
-        kill -TERM "$pid" 2>/dev/null || true
-        kill -CONT "$pid" 2>/dev/null || true
-      done
-      for _ in {1..20}; do
-        if [ -z "$(runtime_pids)" ]; then
-          return 0
-        fi
-        sleep 0.25
-      done
-      mapfile -t pids < <(runtime_pids)
-      for pid in "${pids[@]}"; do
-        is_self_pid "$pid" && continue
-        kill -KILL "$pid" 2>/dev/null || true
-      done
-      for _ in {1..20}; do
-        if [ -z "$(lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true)" ]; then
-          return 0
-        fi
-        sleep 0.25
-      done
-      echo "MemOS/OpenClaw viewer port $MEMOS_VIEWER_PORT is still occupied" >&2
-      lsof -nP -iTCP:"$MEMOS_VIEWER_PORT" -sTCP:LISTEN >&2 || true
-      return 1
-    }
-
-    stop_memos_runtime
-
-    find "$OPENCLAW_HOME/agents" -type f -delete 2>/dev/null || true
-    rm -f "$OPENCLAW_HOME/memory/"*.sqlite "$OPENCLAW_HOME/memory/"*.sqlite-wal "$OPENCLAW_HOME/memory/"*.sqlite-shm 2>/dev/null || true
-    rm -f "$OPENCLAW_HOME/logs/"*.log 2>/dev/null || true
-    rm -rf "$OPENCLAW_HOME/skills/"* "$OPENCLAW_HOME/workspace/skills/"* 2>/dev/null || true
-    rm -f "$OPENCLAW_HOME/workspace/skills-lock.json" 2>/dev/null || true
-    rm -f "$MEMOS_PLUGIN_HOME/data/memos.db" "$MEMOS_PLUGIN_HOME/data/memos.db-wal" "$MEMOS_PLUGIN_HOME/data/memos.db-shm" 2>/dev/null || true
-    rm -rf "$MEMOS_PLUGIN_HOME/skills/"* 2>/dev/null || true
-    rm -f "$MEMOS_PLUGIN_HOME/logs/"*.log "$MEMOS_PLUGIN_HOME/logs/"*.jsonl "$MEMOS_PLUGIN_HOME/daemon/"* 2>/dev/null || true
-
-    # AgentBench runs OpenClaw with --local. Do not pre-start a gateway or
-    # bridge here; the per-task CLI process is the MemOS runtime owner.
+    rm -rf "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
+    rm -f "$plugin/memos.db"
+    mkdir -p "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
+    rm -f "$db" "$db-wal" "$db-shm"
     BASH
+
+  wait_settle: |
+    bash <<'BASH'
+    set -euo pipefail
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    expected="${OMNIMEMEVAL_EXPECTED_TRIALS:?expected trial count is required}"
+    timeout="${MEMOS_FINALIZE_TIMEOUT:-1800}"
+    case "$expected" in ''|*[!0-9]*) echo "invalid expected trial count: $expected" >&2; exit 1;; esac
+    [ "$expected" -gt 0 ] || { echo "expected trial count must be positive" >&2; exit 1; }
+    command -v sqlite3 >/dev/null
+
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+      done
+    }
+    database_gate() {
+      [ -s "$db" ] || return 1
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','embedding_retry_queue');")" = "3" ] || return 1
+      closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
+      total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
+      empty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE trace_ids_json='[]';")"
+      queued="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
+      [ "$closed" -eq "$expected" ] && [ "$total" -eq "$expected" ] \
+        && [ "$empty" -eq 0 ] && [ "$queued" -eq 0 ]
+    }
+
+    deadline=$((SECONDS + timeout))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      database_gate && break
+      sleep 5
+    done
+    database_gate || {
+      echo "OpenClaw MemOS did not settle: expected exactly $expected closed non-empty episodes and no pending/inflight embedding jobs" >&2
+      exit 1
+    }
+
+    # A graceful bridge shutdown invokes MemOS core.shutdown(), which drains
+    # any remaining in-memory pipeline work before the SQLite snapshot.
+    for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+    shutdown_deadline=$((SECONDS + ${MEMOS_DAEMON_TERM_TIMEOUT:-300}))
+    while [ "$SECONDS" -lt "$shutdown_deadline" ]; do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
+    done
+    [ -z "$(runtime_pids)" ] || {
+      echo "OpenClaw MemOS bridges did not drain and stop gracefully; refusing to back up" >&2
+      exit 1
+    }
+    database_gate
+    test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
+    BASH
+
   backup: |
     bash <<'BASH'
     set -euo pipefail
-    OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
-    db="$OPENCLAW_HOME/memos-plugin/data/memos.db"
-    if [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
-      sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null || true
-    fi
-
-    runtime_pids() {
-      {
-        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
-        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
-        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
-      } | awk 'NF && !seen[$0]++'
-    }
-
-    is_self_pid() {
-      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
-    }
-
-    openclaw gateway stop 2>/dev/null || true
-    sleep 0.5
-    mapfile -t pids < <(runtime_pids)
-    for pid in "${pids[@]}"; do
-      is_self_pid "$pid" && continue
-      kill -TERM "$pid" 2>/dev/null || true
-      kill -CONT "$pid" 2>/dev/null || true
-    done
-    sleep 2
-    openclaw gateway stop 2>/dev/null || true
-    sleep 0.5
-    mapfile -t pids < <(runtime_pids)
-    for pid in "${pids[@]}"; do
-      is_self_pid "$pid" && continue
-      kill -KILL "$pid" 2>/dev/null || true
-    done
-    tar -czf "@backup_file@" -C "$OPENCLAW_HOME" memos-plugin
+    umask 077
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    dest="@backup_file@"
+    command -v sqlite3 >/dev/null
+    test -s "$db"
+    case "$dest" in *"'"*) echo "backup path cannot contain a single quote" >&2; exit 1;; esac
+    mkdir -p "$(dirname "$dest")"
+    chmod 700 "$(dirname "$dest")"
+    rm -f "$dest" "$dest.tmp"
+    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$dest.tmp'"
+    test "$(sqlite3 "$dest.tmp" 'PRAGMA quick_check;')" = "ok"
+    mv "$dest.tmp" "$dest"
+    chmod 600 "$dest"
     BASH
+
   restore: |
     bash <<'BASH'
     set -euo pipefail
-    OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-    rm -rf "$OPENCLAW_HOME/memos-plugin"
-    tar -xzf "@backup_file@" -C "$OPENCLAW_HOME"
-    BASH
-  finalize: |
-    bash <<'BASH'
-    set -euo pipefail
-    MEMOS_VIEWER_PORT="${MEMOS_VIEWER_PORT:-18799}"
+    umask 077
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    source="@backup_file@"
+    case "$plugin" in "@run_dir@"/runtime/openclaw/memos-plugin) ;; *)
+      echo "refusing to restore into non-run-scoped plugin home: $plugin" >&2; exit 1;;
+    esac
+    command -v sqlite3 >/dev/null
+    test -s "$source"
+    test "$(sqlite3 "$source" 'PRAGMA quick_check;')" = "ok"
 
     runtime_pids() {
-      {
-        lsof -ti :"$MEMOS_VIEWER_PORT" 2>/dev/null || true
-        pgrep -f '[b]ridge\.(cts|cjs).*--agent[= ]openclaw.*--daemon' 2>/dev/null || true
-        pgrep -f '[o]penclaw/(dist/)?index\.js[[:space:]]+gateway|[o]penclaw[[:space:]]+gateway' 2>/dev/null || true
-      } | awk 'NF && !seen[$0]++'
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+      done
     }
+    for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+    deadline=$((SECONDS + ${MEMOS_DAEMON_TERM_TIMEOUT:-300}))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
+    done
+    [ -z "$(runtime_pids)" ] || { echo "run-scoped OpenClaw bridges did not stop before restore" >&2; exit 1; }
+    mkdir -p "$(dirname "$db")"
+    rm -f "$db" "$db-wal" "$db-shm" "$db.tmp"
+    case "$db" in *"'"*) echo "database path cannot contain a single quote" >&2; exit 1;; esac
+    sqlite3 "$source" ".backup '$db.tmp'"
+    mv "$db.tmp" "$db"
+    chmod 600 "$db"
+    BASH
 
-    is_self_pid() {
-      [ "$1" = "$$" ] || [ "$1" = "$BASHPID" ] || [ "$1" = "$PPID" ]
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    runtime="${OPENCLAW_HOME:?run-scoped OPENCLAW_HOME is required}"
+    plugin="${MEMOS_PLUGIN_HOME:?run-scoped MEMOS_PLUGIN_HOME is required}"
+    case "$runtime" in "@run_dir@"/runtime/openclaw) ;; *)
+      echo "refusing to clean non-run-scoped OpenClaw home: $runtime" >&2; exit 1;;
+    esac
+    runtime_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+      done
     }
-
-    openclaw gateway stop 2>/dev/null || true
-    sleep 0.5
-    mapfile -t pids < <(runtime_pids)
-    for pid in "${pids[@]}"; do
-      is_self_pid "$pid" && continue
-      kill -TERM "$pid" 2>/dev/null || true
-      kill -CONT "$pid" 2>/dev/null || true
+    for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+    for _ in $(seq 1 "${MEMOS_DAEMON_TERM_TIMEOUT:-300}"); do
+      [ -z "$(runtime_pids)" ] && break
+      sleep 1
     done
-    sleep 2
-    mapfile -t pids < <(runtime_pids)
-    for pid in "${pids[@]}"; do
-      is_self_pid "$pid" && continue
-      kill -KILL "$pid" 2>/dev/null || true
-    done
+    [ -z "$(runtime_pids)" ] || { echo "run-scoped MemOS processes survived cleanup" >&2; exit 1; }
+    rm -rf "$runtime"
     BASH

@@ -71,6 +71,17 @@ class OpenClawAgentAdapter(AgentAdapter):
     def _runtime(self) -> dict:
         return dict(self.config.get("runtime") or {})
 
+    def _source_config_dir(self) -> Path:
+        """Return the durable OpenClaw config used to seed isolated task homes.
+
+        Memory evaluations can point this at a run-scoped clone so task homes
+        never link back into the user's real ``~/.openclaw`` tree.
+        """
+        configured = os.environ.get("OMNIMEMEVAL_OPENCLAW_HOME_SOURCE")
+        if configured:
+            return Path(configured).expanduser().resolve()
+        return Path.home() / ".openclaw"
+
     def _transport(self) -> str:
         runtime = self._runtime()
         return str(runtime.get("transport") or "local").strip().lower()
@@ -89,11 +100,12 @@ class OpenClawAgentAdapter(AgentAdapter):
         return result
 
     def _link_global_openclaw_paths(self, config_dir: Path) -> None:
+        source_home = self._source_config_dir()
         for link in self._configured_home_links():
             rel_path = Path(link)
             if rel_path.is_absolute() or ".." in rel_path.parts:
                 raise RuntimeError(f"OpenClaw home_links must be relative paths: {link}")
-            source = Path.home() / ".openclaw" / rel_path
+            source = source_home / rel_path
             if not source.exists():
                 raise RuntimeError(f"OpenClaw home link source does not exist: {source}")
             target = config_dir / rel_path
@@ -103,7 +115,7 @@ class OpenClawAgentAdapter(AgentAdapter):
             target.symlink_to(source, target_is_directory=source.is_dir())
 
     def _build_openclaw_config(self) -> dict:
-        global_config_path = Path.home() / ".openclaw" / "openclaw.json"
+        global_config_path = self._source_config_dir() / "openclaw.json"
         if global_config_path.exists():
             config = json.loads(global_config_path.read_text())
         else:
@@ -416,10 +428,11 @@ class OpenClawAgentAdapter(AgentAdapter):
         if self._runtime().get("disable_plugins", False):
             return
         plugin_paths = []
+        source_home = self._source_config_dir()
         for link in self._configured_home_links():
             rel_path = Path(link)
             if rel_path.parts[:1] == ("extensions",):
-                plugin_paths.append(str(Path.home() / ".openclaw" / rel_path))
+                plugin_paths.append(str(source_home / rel_path))
         if not plugin_paths:
             return
         load = config.setdefault("plugins", {}).setdefault("load", {})

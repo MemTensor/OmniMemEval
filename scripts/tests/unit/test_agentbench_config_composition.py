@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -37,6 +38,8 @@ def test_memos_resolves_runtime_specific_profile_and_lifecycle(agent):
     assert lifecycle_path == ROOT / "configs" / "agentbench" / "memory_plugins" / "memos" / "lifecycle" / f"{agent}.yaml"
     assert lifecycle["plugin"] == "memos"
     assert lifecycle["agent"] == agent
+    assert lifecycle["env"]["MEMOS_HOME"] == lifecycle["env"]["MEMOS_PLUGIN_HOME"]
+    assert lifecycle["env"]["MEMOS_DB"].startswith(lifecycle["env"]["MEMOS_HOME"])
     assert profile_path == ROOT / "configs" / "agentbench" / "profiles" / agent / "memos.yaml"
     assert profile_name == "memos"
     assert profile["agent"] == agent
@@ -77,30 +80,73 @@ def test_profiles_keep_runtime_specific_patches_separate():
     assert hermes_config["memory"]["user_profile_enabled"] is False
 
 
-def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path):
+def test_memos_lifecycles_use_private_sqlite_only_backups():
+    required = {
+        "prepare_global_snapshot",
+        "clear",
+        "wait_settle",
+        "backup",
+        "restore",
+        "cleanup",
+    }
+    for agent in ("openclaw", "hermes"):
+        config = load_yaml(_default_memory_plugin_config(agent, "memos"))
+        assert required <= config["commands"].keys()
+        assert config["backup_file_template"].endswith(".sqlite3")
+        assert config["global_backup_file_template"].endswith(".sqlite3")
+        assert config["backup_dir"] == "@run_dir@/memory_backups"
+        assert "tar " not in config["commands"]["backup"]
+        assert ".auth.json" not in config["commands"]["backup"]
+        assert "config.yaml" not in config["commands"]["backup"]
+        assert "pgrep" not in "\n".join(config["commands"].values())
+
+
+def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path, monkeypatch):
     config = load_yaml(_default_memory_plugin_config("hermes", "memos"))
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / "user-hermes"
     plugin_home = hermes_home / "memos-plugin"
     (plugin_home / "dist").mkdir(parents=True)
     (plugin_home / "dist" / "bridge.cjs").write_text("", encoding="utf-8")
+    (plugin_home / "config.yaml").write_text("version: 1\n", encoding="utf-8")
+    (hermes_home / "config.yaml").write_text("model: {}\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     config["backup_dir"] = str(tmp_path / "backups")
     config["env"].update({
-        "HERMES_HOME": str(hermes_home),
-        "MEMOS_PLUGIN_HOME": str(plugin_home),
-        "MEMOS_DB": str(plugin_home / "data" / "memos.db"),
         "MEMOS_DAEMON_TERM_TIMEOUT": "1",
-        "MEMOS_DAEMON_START_WAIT_SECONDS": "0",
-        "MEMOS_CLEAR_SETTLE_SECONDS": "0",
+        "MEMOS_START_DAEMON": "0",
+        "MEMOS_FINALIZE_TIMEOUT": "0",
     })
+    run_dir = tmp_path / "run"
     lifecycle = CommandMemoryLifecycle(
         config=config,
         project_dir=ROOT,
-        run_dir=tmp_path / "run",
+        run_dir=run_dir,
         run_id="clear-regression",
         version="test",
     )
 
-    lifecycle.validate("reasoning")
-    lifecycle.clear("reasoning")
+    lifecycle.activate_runtime_env()
+    try:
+        lifecycle.validate("reasoning")
+        snapshot = lifecycle.prepare_global_snapshot("reasoning")
+        lifecycle.clear("reasoning")
 
-    assert (plugin_home / "data").is_dir()
+        assert snapshot.stat().st_mode & 0o777 == 0o600
+        assert (run_dir / "runtime" / "hermes" / "memos-plugin" / "data").is_dir()
+
+        with pytest.raises(RuntimeError, match="stage=wait_settle"):
+            lifecycle.wait_settle("reasoning", expected_trials=1)
+        assert "Hermes MemOS DB is missing or empty" in lifecycle.log_file.read_text()
+
+        old_path = os.environ["PATH"]
+        no_sqlite_bin = tmp_path / "no-sqlite-bin"
+        no_sqlite_bin.mkdir()
+        (no_sqlite_bin / "bash").symlink_to("/usr/bin/bash")
+        monkeypatch.setenv("PATH", str(no_sqlite_bin))
+        with pytest.raises(RuntimeError, match="stage=wait_settle"):
+            lifecycle.wait_settle("reasoning", expected_trials=1)
+        monkeypatch.setenv("PATH", old_path)
+        assert "sqlite3 is required to verify" in lifecycle.log_file.read_text()
+    finally:
+        lifecycle.cleanup("reasoning")
+        lifecycle.restore_runtime_env()

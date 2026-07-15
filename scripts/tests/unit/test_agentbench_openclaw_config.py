@@ -142,6 +142,34 @@ def test_isolated_home_links_expose_global_plugin_paths(tmp_path, monkeypatch):
     assert (config_dir / "npm").is_symlink()
 
 
+def test_isolated_home_links_can_use_run_scoped_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    source = tmp_path / "run" / "openclaw"
+    source.mkdir(parents=True)
+    (source / "openclaw.json").write_text(
+        json.dumps({"plugins": {"enabled": True}}),
+        encoding="utf-8",
+    )
+    (source / "memos-plugin").mkdir()
+    monkeypatch.setenv("OMNIMEMEVAL_OPENCLAW_HOME_SOURCE", str(source))
+
+    agent = OpenClawAgentAdapter({
+        "runtime": {
+            "home_mode": "isolated_copy",
+            "home_links": ["memos-plugin"],
+        },
+    })
+    agent._ensure_temp_config()
+    try:
+        config_dir = Path(agent._temp_home) / ".openclaw"
+        link = config_dir / "memos-plugin"
+        assert link.is_symlink()
+        assert link.resolve() == (source / "memos-plugin").resolve()
+        assert json.loads((config_dir / "openclaw.json").read_text())["plugins"]["enabled"] is True
+    finally:
+        agent.cleanup_task()
+
+
 def test_memos_profile_enables_only_selected_memory_integration():
     cfg = {
         "runtime": {

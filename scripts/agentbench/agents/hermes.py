@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -350,17 +351,52 @@ class HermesAgentAdapter(AgentAdapter):
     def call(self, prompt: str, session: SessionSpec, timeout: int = 3600) -> dict:
         started_at = time.time()
         cmd = self._build_cli_cmd(prompt, session, timeout)
+        runtime = self._runtime()
+        timeout_grace = self._runtime_float(runtime, "cli_timeout_grace_seconds", 60.0)
+        terminate_grace = self._runtime_float(
+            runtime, "cli_terminate_grace_seconds", 5.0
+        )
+        hard_timeout = timeout + timeout_grace
         start = time.time()
+        proc: subprocess.Popen[str] | None = None
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout + 60,
                 env=self._get_subprocess_env(session),
+                start_new_session=True,
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=hard_timeout)
+            except subprocess.TimeoutExpired:
+                self._terminate_process_tree(proc, terminate_grace)
+                stdout, stderr = proc.communicate()
+                elapsed = time.time() - start
+                self._materialize_session_jsonl(session, started_at=started_at)
+                data = {
+                    "response": "",
+                    "completion_status": "timeout",
+                    "elapsed_sec": round(elapsed, 1),
+                    "method": "cli",
+                    "error": f"subprocess timed out after {hard_timeout:g}s",
+                    "stderr": (stderr or "")[:2000] or None,
+                }
+                if self._hermes_session_ids.get(session.cli_session_id):
+                    data["hermes_session_id"] = self._hermes_session_ids[
+                        session.cli_session_id
+                    ]
+                return data
+
             elapsed = time.time() - start
             self._materialize_session_jsonl(session, started_at=started_at)
+            result = subprocess.CompletedProcess(
+                cmd,
+                proc.returncode,
+                stdout=stdout,
+                stderr=stderr,
+            )
             data = {
                 "response": result.stdout,
                 "completion_status": "completed" if result.returncode == 0 else "error",
@@ -373,19 +409,61 @@ class HermesAgentAdapter(AgentAdapter):
             if self._hermes_session_ids.get(session.cli_session_id):
                 data["hermes_session_id"] = self._hermes_session_ids[session.cli_session_id]
             return data
+        except BaseException:
+            if proc is not None and proc.poll() is None:
+                self._terminate_process_tree(proc, terminate_grace)
+            raise
+
+    @staticmethod
+    def _runtime_float(runtime: dict, key: str, default: float) -> float:
+        try:
+            return float(runtime.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _terminate_process_tree(proc: subprocess.Popen, grace_seconds: float) -> None:
+        """Terminate the isolated process group created for one Hermes call."""
+        pgid = proc.pid
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except OSError:
+            if proc.poll() is None:
+                proc.terminate()
+
+        deadline = time.monotonic() + max(0.1, grace_seconds)
+        while time.monotonic() < deadline:
+            # Reap the direct process promptly; the group probe below still
+            # detects any surviving descendants that inherited this pgid.
+            proc.poll()
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                break
+            except OSError:
+                if proc.poll() is not None:
+                    break
+            time.sleep(0.05)
+        else:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                if proc.poll() is None:
+                    proc.kill()
+
+        try:
+            proc.wait(timeout=max(0.1, grace_seconds))
         except subprocess.TimeoutExpired:
-            elapsed = time.time() - start
-            self._materialize_session_jsonl(session, started_at=started_at)
-            data = {
-                "response": "",
-                "completion_status": "timeout",
-                "elapsed_sec": round(elapsed, 1),
-                "method": "cli",
-                "error": f"subprocess timed out after {timeout + 60}s",
-            }
-            if self._hermes_session_ids.get(session.cli_session_id):
-                data["hermes_session_id"] = self._hermes_session_ids[session.cli_session_id]
-            return data
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except OSError:
+                if proc.poll() is None:
+                    proc.kill()
+            proc.wait()
 
     def _latest_snapshot(self, started_at: float | None = None) -> Path | None:
         candidates = sorted(self._session_dir().glob("session_*.json"), key=lambda p: p.stat().st_mtime)
