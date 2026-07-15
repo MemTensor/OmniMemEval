@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -120,6 +121,27 @@ while True:
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def _write_memos_capture(db: Path, session_id: str = "hermes-session-1") -> None:
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    try:
+        conn.executescript(
+            "CREATE TABLE episodes (id TEXT PRIMARY KEY, session_id TEXT, status TEXT, trace_ids_json TEXT);"
+            "CREATE TABLE traces (id TEXT PRIMARY KEY, session_id TEXT, episode_id TEXT);"
+        )
+        conn.execute(
+            "INSERT INTO episodes VALUES ('episode-1', ?, 'closed', '[\"trace-1\"]')",
+            (session_id,),
+        )
+        conn.execute(
+            "INSERT INTO traces VALUES ('trace-1', ?, 'episode-1')",
+            (session_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _process_is_live(pid: int) -> bool:
@@ -376,6 +398,65 @@ def test_hermes_feedback_resumes_real_hermes_session(tmp_path, monkeypatch):
     assert stats["input"] == 11
     assert stats["output"] == 7
     assert (trial_dir / "session.jsonl").exists()
+
+
+def test_hermes_train_requires_durable_memos_capture(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    memos_db = tmp_path / "run-memos" / "data" / "memos.db"
+    monkeypatch.setenv("MEMOS_DB", str(memos_db))
+    _write_global_hermes_config(tmp_path)
+    fake_hermes = tmp_path / "hermes"
+    _write_fake_hermes(fake_hermes)
+
+    agent = HermesAgentAdapter({
+        "command": str(fake_hermes),
+        "runtime": {
+            "verify_memos_capture": True,
+            "memos_capture_verify_timeout_seconds": 0,
+        },
+    })
+    session = agent.build_session_spec(
+        phase="train", domain="reasoning", split="train",
+        task={"name": "omni_1"}, trial=1,
+    )
+    agent.prepare_task({"name": "omni_1"}, {}, session)
+
+    try:
+        with pytest.raises(RuntimeError, match="capture was not persisted"):
+            agent.call("task prompt", session, timeout=5)
+    finally:
+        agent.cleanup_task()
+
+
+def test_hermes_train_reports_verified_memos_capture(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    memos_db = tmp_path / "run-memos" / "data" / "memos.db"
+    monkeypatch.setenv("MEMOS_DB", str(memos_db))
+    _write_memos_capture(memos_db)
+    _write_global_hermes_config(tmp_path)
+    fake_hermes = tmp_path / "hermes"
+    _write_fake_hermes(fake_hermes)
+
+    agent = HermesAgentAdapter({
+        "command": str(fake_hermes),
+        "runtime": {"verify_memos_capture": True},
+    })
+    session = agent.build_session_spec(
+        phase="train", domain="reasoning", split="train",
+        task={"name": "omni_1"}, trial=1,
+    )
+    agent.prepare_task({"name": "omni_1"}, {}, session)
+    try:
+        result = agent.call("task prompt", session, timeout=5)
+    finally:
+        agent.cleanup_task()
+
+    assert result["memos_capture"] == {
+        "verified": True,
+        "session_id": "hermes-session-1",
+        "closed_episodes": 1,
+        "traces": 1,
+    }
 
 
 def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):

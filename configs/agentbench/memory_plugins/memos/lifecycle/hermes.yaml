@@ -26,6 +26,7 @@ env:
   MEMOS_FINALIZE_TIMEOUT: "1800"
   MEMOS_DAEMON_TERM_TIMEOUT: "300"
   MEMOS_DAEMON_START_WAIT_SECONDS: "30"
+  MEMOS_PREWARM_TIMEOUT: "300"
   # The daemon only serves the viewer; per-chat stdio bridges own capture.
   # auto starts it only when :18800 is free, so an unrelated user daemon is
   # never stopped merely to expose the evaluation viewer.
@@ -151,12 +152,26 @@ commands:
       echo "run-scoped Hermes daemon failed its health check" >&2
       return 1
     }
+    prewarm_database() {
+      mode="${MEMOS_PREWARM:-1}"
+      [ "$mode" != "0" ] && [ "$mode" != "false" ] || return 0
+      # One bridge initializes and migrates the fresh run DB before parallel
+      # Hermes tasks start.  Closed stdin makes it exit immediately after init.
+      timeout --signal=TERM --kill-after=10s "${MEMOS_PREWARM_TIMEOUT:-300}s" \
+        node "$plugin/dist/bridge.cjs" --agent=hermes --no-viewer </dev/null \
+        >>"$plugin/logs/prewarm.log" 2>&1
+      [ -s "$db" ] || { echo "Hermes MemOS prewarm did not create $db" >&2; return 1; }
+      required="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue');")"
+      [ "$required" = "4" ] || { echo "Hermes MemOS prewarm did not create required pipeline tables" >&2; return 1; }
+      test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
+    }
 
     stop_runtime
     rm -rf "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
     rm -f "$plugin/bridge-status.json"
     mkdir -p "$plugin/data" "$plugin/logs" "$plugin/daemon" "$plugin/memos-local" "$plugin/skills"
     rm -f "$db" "$db-wal" "$db-shm"
+    prewarm_database
     start_daemon_if_safe
     BASH
 
@@ -187,6 +202,20 @@ commands:
         case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
       done
     }
+    capture_pids() {
+      local proc pid env args
+      for proc in /proc/[0-9]*; do
+        pid="${proc##*/}"
+        [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
+        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
+        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
+        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        case "$args" in
+          *bridge.cjs*--agent=hermes*--no-viewer*|*bridge.cts*--agent=hermes*--no-viewer*) printf '%s\n' "$pid";;
+        esac
+      done
+    }
     schema_ready() {
       [ -s "$db" ] || return 1
       [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue');")" = "4" ]
@@ -212,6 +241,12 @@ commands:
     deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
       if schema_ready && episode_gate; then break; fi
+      if [ -z "$(capture_pids)" ]; then
+        closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
+        total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
+        echo "Hermes MemOS capture bridges have exited but episode gate is unsatisfied: expected=$expected closed=$closed total=$total" >&2
+        exit 1
+      fi
       sleep 5
     done
     schema_ready || { echo "Hermes MemOS DB/schema was not created" >&2; exit 1; }

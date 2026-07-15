@@ -408,6 +408,13 @@ class HermesAgentAdapter(AgentAdapter):
             data.update(self._parse_extra(result))
             if self._hermes_session_ids.get(session.cli_session_id):
                 data["hermes_session_id"] = self._hermes_session_ids[session.cli_session_id]
+            if data["completion_status"] == "completed" and self._memos_capture_verification_enabled():
+                hermes_session_id = self._hermes_session_ids.get(session.cli_session_id)
+                if not hermes_session_id:
+                    raise RuntimeError(
+                        "Hermes MemOS capture verification could not resolve the Hermes session id"
+                    )
+                data["memos_capture"] = self._wait_for_memos_capture(hermes_session_id)
             return data
         except BaseException:
             if proc is not None and proc.poll() is None:
@@ -420,6 +427,83 @@ class HermesAgentAdapter(AgentAdapter):
             return float(runtime.get(key, default))
         except (TypeError, ValueError):
             return default
+
+    def _memos_capture_verification_enabled(self) -> bool:
+        """Require a durable MemOS episode only for writable train phases."""
+        enabled = self._runtime().get("verify_memos_capture", False)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(enabled) and self._phase() == "train"
+
+    @staticmethod
+    def _memos_db_path() -> Path | None:
+        configured = os.environ.get("MEMOS_DB")
+        if configured:
+            return Path(configured).expanduser()
+        memos_home = os.environ.get("MEMOS_HOME")
+        if memos_home:
+            return Path(memos_home).expanduser() / "data" / "memos.db"
+        return None
+
+    @staticmethod
+    def _memos_capture_counts(db_path: Path, session_id: str) -> tuple[int, int]:
+        uri = f"file:{db_path.resolve()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5)
+        try:
+            required = conn.execute(
+                "SELECT count(*) FROM sqlite_master "
+                "WHERE type='table' AND name IN ('episodes','traces')"
+            ).fetchone()[0]
+            if required != 2:
+                return 0, 0
+            row = conn.execute(
+                """
+                SELECT count(DISTINCT e.id), count(t.id)
+                FROM episodes AS e
+                LEFT JOIN traces AS t ON t.episode_id = e.id
+                WHERE e.session_id = ?
+                  AND e.status = 'closed'
+                  AND e.trace_ids_json <> '[]'
+                """,
+                (session_id,),
+            ).fetchone()
+            return int(row[0] or 0), int(row[1] or 0)
+        finally:
+            conn.close()
+
+    def _wait_for_memos_capture(self, session_id: str) -> dict[str, Any]:
+        db_path = self._memos_db_path()
+        if db_path is None:
+            raise RuntimeError("Hermes MemOS capture verification requires MEMOS_DB or MEMOS_HOME")
+
+        timeout = max(
+            0.0,
+            self._runtime_float(
+                self._runtime(), "memos_capture_verify_timeout_seconds", 15.0
+            ),
+        )
+        deadline = time.monotonic() + timeout
+        last_error: str | None = None
+        while True:
+            if db_path.is_file() and db_path.stat().st_size > 0:
+                try:
+                    episodes, traces = self._memos_capture_counts(db_path, session_id)
+                    if episodes > 0 and traces > 0:
+                        return {
+                            "verified": True,
+                            "session_id": session_id,
+                            "closed_episodes": episodes,
+                            "traces": traces,
+                        }
+                except sqlite3.Error as exc:
+                    last_error = str(exc)
+            if time.monotonic() >= deadline:
+                detail = f"; last SQLite error: {last_error}" if last_error else ""
+                raise RuntimeError(
+                    "Hermes MemOS capture was not persisted as a closed non-empty episode "
+                    f"for session {session_id} in {db_path}{detail}"
+                )
+            time.sleep(0.2)
 
     @staticmethod
     def _terminate_process_tree(proc: subprocess.Popen, grace_seconds: float) -> None:

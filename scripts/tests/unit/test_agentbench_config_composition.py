@@ -1,6 +1,8 @@
 import argparse
 import os
+import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -76,6 +78,7 @@ def test_profiles_keep_runtime_specific_patches_separate():
     assert "hermes_config_patch" in hermes_config
     assert "openclaw_config_patch" not in hermes_config
     assert hermes_config["runtime"]["home_links"] == ["memos-plugin"]
+    assert hermes_config["runtime"]["verify_memos_capture"] is True
     assert hermes_config["memory"]["memory_enabled"] is False
     assert hermes_config["memory"]["user_profile_enabled"] is False
 
@@ -114,6 +117,7 @@ def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path, mon
     config["env"].update({
         "MEMOS_DAEMON_TERM_TIMEOUT": "1",
         "MEMOS_START_DAEMON": "0",
+        "MEMOS_PREWARM": "0",
         "MEMOS_FINALIZE_TIMEOUT": "0",
     })
     run_dir = tmp_path / "run"
@@ -137,6 +141,24 @@ def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path, mon
         with pytest.raises(RuntimeError, match="stage=wait_settle"):
             lifecycle.wait_settle("reasoning", expected_trials=1)
         assert "Hermes MemOS DB is missing or empty" in lifecycle.log_file.read_text()
+
+        db = run_dir / "runtime" / "hermes" / "memos-plugin" / "data" / "memos.db"
+        conn = sqlite3.connect(db)
+        try:
+            conn.executescript(
+                "CREATE TABLE episodes (id TEXT, status TEXT, trace_ids_json TEXT);"
+                "CREATE TABLE traces (id TEXT);"
+                "CREATE TABLE api_logs (id TEXT);"
+                "CREATE TABLE embedding_retry_queue (id TEXT, status TEXT);"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="stage=wait_settle"):
+            lifecycle.wait_settle("reasoning", expected_trials=1)
+        assert time.monotonic() - started < 3
+        assert "capture bridges have exited but episode gate is unsatisfied" in lifecycle.log_file.read_text()
 
         old_path = os.environ["PATH"]
         no_sqlite_bin = tmp_path / "no-sqlite-bin"

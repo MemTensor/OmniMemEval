@@ -12,6 +12,10 @@ agent_patch:
   runtime:
     home_mode: isolated_copy
     test_memory_provider: omnimemeval_memos_readonly
+    # A successful Hermes CLI call is not a technical success unless its
+    # writable MemOS bridge durably produced a closed, non-empty episode.
+    verify_memos_capture: true
+    memos_capture_verify_timeout_seconds: 15
     home_links:
       - memos-plugin
   hermes_config_patch:
