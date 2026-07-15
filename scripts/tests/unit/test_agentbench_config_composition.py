@@ -42,6 +42,8 @@ def test_memos_resolves_runtime_specific_profile_and_lifecycle(agent):
     assert lifecycle["agent"] == agent
     assert lifecycle["env"]["MEMOS_HOME"] == lifecycle["env"]["MEMOS_PLUGIN_HOME"]
     assert lifecycle["env"]["MEMOS_DB"].startswith(lifecycle["env"]["MEMOS_HOME"])
+    if agent == "hermes":
+        assert "MEMOS_HERMES_RPC_TIMEOUT_SECONDS" not in lifecycle["env"]
     assert profile_path == ROOT / "configs" / "agentbench" / "profiles" / agent / "memos.yaml"
     assert profile_name == "memos"
     assert profile["agent"] == agent

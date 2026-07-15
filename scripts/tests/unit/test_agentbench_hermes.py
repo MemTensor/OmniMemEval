@@ -1,9 +1,11 @@
+import importlib.util
 import json
 import os
 import signal
 import sqlite3
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -142,6 +144,56 @@ def _write_memos_capture(db: Path, session_id: str = "hermes-session-1") -> None
         conn.commit()
     finally:
         conn.close()
+
+
+def _load_memos_overlay(monkeypatch):
+    class FakeMemTensorProvider:
+        def __init__(self) -> None:
+            self._bridge = None
+            self._session_id = "hermes-session-1"
+            self._episode_id = ""
+            self._agent_identity = "hermes"
+            self._last_trace_id = ""
+
+        def _runtime_namespace(self):
+            return {"agentKind": "hermes", "profileId": "default"}
+
+        def _host_runtime_context(self):
+            return {}
+
+        def _turn_start(self, query: str, *, session_id: str = ""):
+            return self._bridge.request(
+                "turn.start", {"query": query, "sessionId": session_id}
+            )
+
+        def sync_turn(self, user: str, assistant: str, *, session_id: str = ""):
+            if user and not self._episode_id:
+                self._turn_start(user, session_id=session_id)
+            return self._turn_end(user, assistant, [], int(time.time() * 1000))
+
+    plugins = types.ModuleType("plugins")
+    memory = types.ModuleType("plugins.memory")
+    memtensor = types.ModuleType("plugins.memory.memtensor")
+    memtensor.MemTensorProvider = FakeMemTensorProvider
+    monkeypatch.setitem(sys.modules, "plugins", plugins)
+    monkeypatch.setitem(sys.modules, "plugins.memory", memory)
+    monkeypatch.setitem(sys.modules, "plugins.memory.memtensor", memtensor)
+
+    name = "_test_omnimemeval_memos_overlay"
+    source = (
+        ROOT
+        / "scripts"
+        / "agentbench"
+        / "integrations"
+        / "omnimemeval_memos"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(name, source)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _process_is_live(pid: int) -> bool:
@@ -460,6 +512,63 @@ def test_hermes_train_reports_verified_memos_capture(tmp_path, monkeypatch):
         "closed_episodes": 1,
         "traces": 1,
     }
+
+
+def test_hermes_memos_retrieval_timeout_degrades_but_capture_continues(monkeypatch):
+    module = _load_memos_overlay(monkeypatch)
+
+    class RpcTimeout(RuntimeError):
+        code = "timeout"
+
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, params=None, *, timeout=30.0):
+            self.calls.append((method, params, timeout))
+            if method == "turn.start":
+                raise RpcTimeout("turn.start did not respond within 30s")
+            if method == "turn.end":
+                return {"episodeId": "episode-real", "traceId": "trace-real"}
+            return {}
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = FakeBridge()
+
+    with pytest.raises(RpcTimeout):
+        provider._turn_start("task", session_id="hermes-session-1")
+    assert provider._has_unresolved_episode()
+
+    trace_id = provider.sync_turn(
+        "task", "answer", session_id="hermes-session-1"
+    )
+
+    assert trace_id == "trace-real"
+    assert provider._episode_id == "episode-real"
+    assert provider._last_trace_id == "trace-real"
+    assert [method for method, _, _ in provider._bridge.calls] == [
+        "turn.start",
+        "turn.end",
+    ]
+    turn_end_payload = provider._bridge.calls[-1][1]
+    assert turn_end_payload["episodeId"] == ""
+
+
+def test_hermes_memos_non_timeout_does_not_claim_an_unresolved_episode(monkeypatch):
+    module = _load_memos_overlay(monkeypatch)
+
+    class ClosedBridge:
+        def request(self, method, params=None, *, timeout=30.0):
+            raise RuntimeError("bridge closed")
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = ClosedBridge()
+
+    with pytest.raises(RuntimeError, match="bridge closed"):
+        provider._turn_start("task", session_id="hermes-session-1")
+
+    assert provider._episode_id == ""
+    assert not provider._has_unresolved_episode()
 
 
 def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):

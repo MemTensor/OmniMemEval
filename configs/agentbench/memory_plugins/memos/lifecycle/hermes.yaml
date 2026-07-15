@@ -27,9 +27,6 @@ env:
   MEMOS_DAEMON_TERM_TIMEOUT: "300"
   MEMOS_DAEMON_START_WAIT_SECONDS: "30"
   MEMOS_PREWARM_TIMEOUT: "300"
-  # MemOS retrieval includes model ranking and can legitimately exceed the
-  # provider's upstream 30-second JSON-RPC default under concurrency.
-  MEMOS_HERMES_RPC_TIMEOUT_SECONDS: "180"
   # The daemon only serves the viewer; per-chat stdio bridges own capture.
   # auto starts it only when :18800 is free, so an unrelated user daemon is
   # never stopped merely to expose the evaluation viewer.
