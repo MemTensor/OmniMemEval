@@ -78,6 +78,7 @@ def test_profiles_keep_runtime_specific_patches_separate():
     assert "hermes_config_patch" in hermes_config
     assert "openclaw_config_patch" not in hermes_config
     assert hermes_config["runtime"]["home_links"] == ["memos-plugin"]
+    assert hermes_config["runtime"]["train_memory_provider"] == "omnimemeval_memos"
     assert hermes_config["runtime"]["verify_memos_capture"] is True
     assert hermes_config["memory"]["memory_enabled"] is False
     assert hermes_config["memory"]["user_profile_enabled"] is False

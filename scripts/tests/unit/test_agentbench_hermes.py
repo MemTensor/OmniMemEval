@@ -271,7 +271,10 @@ def test_hermes_memos_train_keeps_writable_provider_in_temp_config(tmp_path, mon
     try:
         temp_home = Path(agent._temp_home)
         temp_config = yaml.safe_load((temp_home / "config.yaml").read_text(encoding="utf-8"))
-        assert temp_config["memory"]["provider"] == "memtensor"
+        writable_provider = temp_home / "plugins" / "omnimemeval_memos"
+        assert temp_config["memory"]["provider"] == "omnimemeval_memos"
+        assert writable_provider.is_symlink()
+        assert (writable_provider / "__init__.py").exists()
         assert not (temp_home / "plugins" / "omnimemeval_memos_readonly").exists()
     finally:
         agent.cleanup_task()

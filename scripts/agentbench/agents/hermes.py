@@ -180,6 +180,12 @@ class HermesAgentAdapter(AgentAdapter):
                 if value is not None:
                     memory_cfg[key] = value
 
+        phase_provider = str(
+            self._runtime().get(f"{self._phase()}_memory_provider") or ""
+        ).strip()
+        if phase_provider:
+            config.setdefault("memory", {})["provider"] = phase_provider
+
         if self._workspace_dir:
             config.setdefault("terminal", {})["cwd"] = self._workspace_dir
 
@@ -288,14 +294,14 @@ class HermesAgentAdapter(AgentAdapter):
         self._ensure_temp_config()
 
     def _install_phase_memory_provider(self, home_dir: Path) -> None:
-        if self._phase() != "test":
-            return
-        provider_name = str(self._runtime().get("test_memory_provider") or "").strip()
+        provider_name = str(
+            self._runtime().get(f"{self._phase()}_memory_provider") or ""
+        ).strip()
         if not provider_name:
             return
         source = Path(__file__).resolve().parents[1] / "integrations" / provider_name
         if not (source / "__init__.py").exists():
-            raise RuntimeError(f"Hermes test memory provider is missing: {source}")
+            raise RuntimeError(f"Hermes phase memory provider is missing: {source}")
         target = home_dir / "plugins" / provider_name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(source, target_is_directory=True)

@@ -11,6 +11,7 @@ agent_patch:
     provider: memtensor
   runtime:
     home_mode: isolated_copy
+    train_memory_provider: omnimemeval_memos
     test_memory_provider: omnimemeval_memos_readonly
     # A successful Hermes CLI call is not a technical success unless its
     # writable MemOS bridge durably produced a closed, non-empty episode.
