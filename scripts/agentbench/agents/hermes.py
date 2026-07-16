@@ -186,9 +186,6 @@ class HermesAgentAdapter(AgentAdapter):
         if phase_provider:
             config.setdefault("memory", {})["provider"] = phase_provider
 
-        if self._workspace_dir:
-            config.setdefault("terminal", {})["cwd"] = self._workspace_dir
-
         patch = self.config.get("hermes_config_patch") or {}
         if patch:
             config.update(deep_merge(dict(config), dict(patch)))
@@ -197,6 +194,11 @@ class HermesAgentAdapter(AgentAdapter):
         phase_patch = phase_patches.get(self._phase()) if isinstance(phase_patches, dict) else None
         if isinstance(phase_patch, dict) and phase_patch:
             config.update(deep_merge(dict(config), dict(phase_patch)))
+
+        # Workspace isolation is a framework invariant, so user/profile
+        # patches are not allowed to redirect Hermes back to a shared cwd.
+        if self._workspace_dir:
+            config.setdefault("terminal", {})["cwd"] = self._workspace_dir
 
         config.setdefault("sessions", {})["write_json_snapshots"] = True
         config.setdefault("display", {})["streaming"] = False
@@ -288,6 +290,9 @@ class HermesAgentAdapter(AgentAdapter):
     def prepare_task(self, task: dict, env_info: dict, session: SessionSpec) -> None:
         workspace_dir = env_info.get("workspace_dir")
         self._workspace_dir = str(Path(workspace_dir).resolve()) if workspace_dir else None
+        if not self._workspace_dir:
+            raise RuntimeError("Hermes task is missing its framework workspace_dir")
+        Path(self._workspace_dir).mkdir(parents=True, exist_ok=True)
         self._task_env_info = dict(env_info or {})
         self._task_env_info["domain_name"] = session.metadata.get("domain", "")
         self._task_env_info["phase"] = session.metadata.get("phase", "")
@@ -339,6 +344,7 @@ class HermesAgentAdapter(AgentAdapter):
     def _get_subprocess_env(self, session: SessionSpec) -> dict[str, str]:
         self._ensure_temp_config()
         env = dict(os.environ)
+        env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
         if self._temp_home:
             env["HERMES_HOME"] = self._temp_home
         env["HERMES_YOLO_MODE"] = "1"
@@ -346,7 +352,6 @@ class HermesAgentAdapter(AgentAdapter):
         if self._workspace_dir:
             env["HERMES_CWD"] = self._workspace_dir
             env["TERMINAL_CWD"] = self._workspace_dir
-        env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
         context_env = (
             self.config.get("session", {}).get("expose_context_env")
             or "OMNIMEMEVAL_AGENT_CONTEXT"
@@ -372,6 +377,7 @@ class HermesAgentAdapter(AgentAdapter):
                 stderr=subprocess.PIPE,
                 text=True,
                 env=self._get_subprocess_env(session),
+                cwd=self._workspace_dir,
                 start_new_session=True,
             )
             try:

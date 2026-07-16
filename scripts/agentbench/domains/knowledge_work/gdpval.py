@@ -170,14 +170,19 @@ class GDPValAdapter(DomainAdapter):
     def setup(self, task: dict, agent_name: str, trial: int) -> dict:
         """Create workspace directory and prepare reference files."""
         cfg = _cfg()
+        framework_workspace = task.get("_workspace_dir")
         phase_dir = task.get("_phase_dir")
-        if phase_dir:
+        if framework_workspace:
+            workspace = Path(framework_workspace)
+        elif phase_dir:
             workspace_root = Path(phase_dir) / "workspaces"
+            workspace = workspace_root / f"{task['name']}_t{trial}"
         elif task.get("_job_dir"):
             workspace_root = Path(task["_job_dir"]) / "workspaces"
+            workspace = workspace_root / f"{task['name']}_t{trial}"
         else:
             workspace_root = Path(cfg.get("workspace_dir", "./jobs/workspaces"))
-        workspace = workspace_root / f"{task['name']}_t{trial}"
+            workspace = workspace_root / f"{task['name']}_t{trial}"
         workspace.mkdir(parents=True, exist_ok=True)
 
         # Copy reference files to workspace if available locally

@@ -116,6 +116,23 @@ def _should_send_train_feedback(args: Namespace, phase: str) -> bool:
     return phase == "train" and bool(getattr(args, "train_feedback", False))
 
 
+def _prepare_trial_workspace(trial_dir: Path) -> Path:
+    """Create a clean, durable workspace owned by one trial attempt.
+
+    Keeping the workspace below ``trial_dir`` makes the isolation boundary
+    framework-owned and ensures retry archival moves the matching workspace
+    together with the rest of the attempt artifacts.
+    """
+
+    workspace_dir = trial_dir / "workspace"
+    if workspace_dir.is_symlink() or workspace_dir.is_file():
+        workspace_dir.unlink()
+    elif workspace_dir.exists():
+        shutil.rmtree(workspace_dir)
+    workspace_dir.mkdir(parents=True)
+    return workspace_dir.resolve()
+
+
 def run_task_once(
     *,
     task: dict,
@@ -138,6 +155,7 @@ def run_task_once(
     )
     trial_dir = phase_dir / f"{task_name}__trial_{trial}"
     trial_dir.mkdir(parents=True, exist_ok=True)
+    workspace_dir = _prepare_trial_workspace(trial_dir)
 
     result = {
         "task_name": task_name,
@@ -159,7 +177,16 @@ def run_task_once(
 
     try:
         task["_phase_dir"] = str(phase_dir)
+        task["_trial_dir"] = str(trial_dir)
+        task["_workspace_dir"] = str(workspace_dir)
         env_info = domain.setup(task, agent.name, trial)
+        if not isinstance(env_info, dict):
+            raise TypeError(
+                f"{domain.name}.setup() must return a dict, got {type(env_info).__name__}"
+            )
+        # The framework owns this value. Domains may populate the workspace,
+        # but cannot redirect an agent to a shared/global working directory.
+        env_info["workspace_dir"] = str(workspace_dir)
         agent.prepare_task(task, env_info, session)
         prompt = _prompt_for_phase(domain, task, env_info, phase, agent.config)
         timeout = domain.get_agent_timeout(task, env_info)

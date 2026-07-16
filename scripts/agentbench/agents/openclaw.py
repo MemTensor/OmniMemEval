@@ -201,7 +201,21 @@ class OpenClawAgentAdapter(AgentAdapter):
             self._restrict_mcp_only_config(config, mcp_section)
         self._filter_disabled_plugins(config)
         self._ensure_plugin_load_paths(config)
+        self._enforce_workspace_config(config)
         return config
+
+    def _enforce_workspace_config(self, config: dict) -> None:
+        """Apply the trial workspace after all user/profile config patches."""
+
+        if not self._workspace_dir:
+            return
+        agents = config.setdefault("agents", {})
+        agents.setdefault("defaults", {})["workspace"] = self._workspace_dir
+        entries = agents.get("list")
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    entry["workspace"] = self._workspace_dir
 
     def _phase_config_patch(self) -> dict:
         patches = self.config.get("openclaw_phase_config_patches") or {}
@@ -466,6 +480,13 @@ class OpenClawAgentAdapter(AgentAdapter):
     def prepare_task(self, task: dict, env_info: dict, session: SessionSpec) -> None:
         workspace_dir = env_info.get("workspace_dir")
         self._workspace_dir = str(Path(workspace_dir).resolve()) if workspace_dir else None
+        if not self._workspace_dir:
+            raise RuntimeError("OpenClaw task is missing its framework workspace_dir")
+        Path(self._workspace_dir).mkdir(parents=True, exist_ok=True)
+        if self._runtime().get("home_mode", "isolated_copy") == "global":
+            raise RuntimeError(
+                "OpenClaw runtime.home_mode=global is incompatible with per-trial workspace isolation"
+            )
         self._task_env = {}
         self._task_env_info = dict(env_info or {})
         self._task_env_info["phase"] = session.metadata.get("phase")
@@ -513,8 +534,6 @@ class OpenClawAgentAdapter(AgentAdapter):
     def _get_subprocess_env(self, session: SessionSpec) -> dict[str, str]:
         self._ensure_temp_config()
         env = dict(os.environ)
-        if self._temp_home:
-            env["OPENCLAW_HOME"] = self._temp_home
         if self._transport() == "gateway":
             port, token = self._ensure_gateway_identity()
             env["OPENCLAW_GATEWAY_URL"] = f"ws://127.0.0.1:{port}"
@@ -528,6 +547,8 @@ class OpenClawAgentAdapter(AgentAdapter):
             ):
                 env.pop(key, None)
         env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
+        if self._temp_home:
+            env["OPENCLAW_HOME"] = self._temp_home
         context_env = (
             self.config.get("session", {}).get("expose_context_env")
             or "OMNIMEMEVAL_AGENT_CONTEXT"
@@ -593,6 +614,7 @@ class OpenClawAgentAdapter(AgentAdapter):
             stderr=subprocess.STDOUT,
             text=True,
             env=self._get_subprocess_env_for_gateway(),
+            cwd=self._workspace_dir,
             start_new_session=True,
         )
         log_fh.close()
@@ -611,9 +633,9 @@ class OpenClawAgentAdapter(AgentAdapter):
 
     def _get_subprocess_env_for_gateway(self) -> dict[str, str]:
         env = dict(os.environ)
+        env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
         if self._temp_home:
             env["OPENCLAW_HOME"] = self._temp_home
-        env.update({str(k): str(v) for k, v in (self.config.get("env") or {}).items()})
         if any(env.get(name) for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")):
             parts = env.get("NODE_OPTIONS", "").split()
             if "--use-env-proxy" not in parts:
@@ -671,6 +693,7 @@ class OpenClawAgentAdapter(AgentAdapter):
                 stderr=stderr_file,
                 text=True,
                 env=env,
+                cwd=self._workspace_dir,
                 start_new_session=True,
             )
 

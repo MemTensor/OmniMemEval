@@ -42,6 +42,7 @@ home = Path(os.environ["HERMES_HOME"])
 args_file = home / "args.jsonl"
 args_file.parent.mkdir(parents=True, exist_ok=True)
 args_file.open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
+(home / "cwd.txt").write_text(os.getcwd(), encoding="utf-8")
 
 resume = None
 query = ""
@@ -228,7 +229,9 @@ def _materialize_hermes_config(
         task={"name": "omni_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, env_info or {}, session)
+    prepared_env = dict(env_info or {})
+    prepared_env.setdefault("workspace_dir", str(tmp_path / "workspace"))
+    agent.prepare_task({"name": "omni_1"}, prepared_env, session)
     return yaml.safe_load(
         (Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8")
     )
@@ -282,7 +285,11 @@ def test_hermes_memos_test_uses_temp_readonly_provider(tmp_path, monkeypatch):
         task={"name": "omni_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(tmp_path / "workspace")},
+        session,
+    )
 
     try:
         temp_home = Path(agent._temp_home)
@@ -318,7 +325,11 @@ def test_hermes_memos_train_keeps_writable_provider_in_temp_config(tmp_path, mon
         task={"name": "omni_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(tmp_path / "workspace")},
+        session,
+    )
 
     try:
         temp_home = Path(agent._temp_home)
@@ -363,6 +374,32 @@ def test_hermes_keeps_global_cli_toolsets_for_knowledge_work(tmp_path, monkeypat
     ]
 
 
+def test_hermes_workspace_cannot_be_overridden_by_profile_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    _write_global_hermes_config(tmp_path, {"terminal": {"cwd": "/global"}})
+    workspace = tmp_path / "trial" / "workspace"
+    agent = HermesAgentAdapter({
+        "hermes_config_patch": {"terminal": {"cwd": "/profile"}},
+    })
+    session = agent.build_session_spec(
+        phase="test", domain="reasoning", split="test",
+        task={"name": "omni_1"}, trial=1,
+    )
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(workspace)},
+        session,
+    )
+    try:
+        config = yaml.safe_load(
+            (Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8")
+        )
+        assert config["terminal"]["cwd"] == str(workspace.resolve())
+    finally:
+        agent.cleanup_task()
+
+
 def test_hermes_information_retrieval_is_search_only(tmp_path, monkeypatch):
     config = _materialize_hermes_config(
         tmp_path,
@@ -405,7 +442,12 @@ def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch
         task={"name": "omni_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    workspace = tmp_path / "workspace"
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(workspace)},
+        session,
+    )
 
     temp_config = yaml.safe_load((Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8"))
     provider = next(
@@ -430,7 +472,12 @@ def test_hermes_feedback_resumes_real_hermes_session(tmp_path, monkeypatch):
         task={"name": "omni_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    workspace = tmp_path / "workspace"
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(workspace)},
+        session,
+    )
 
     first = agent.call("task prompt", session, timeout=5)
     second = agent.call("Verifier feedback for the previous attempt.", session, timeout=5)
@@ -445,6 +492,9 @@ def test_hermes_feedback_resumes_real_hermes_session(tmp_path, monkeypatch):
     second_args = json.loads(args_lines[1])
     assert "--resume" not in first_args
     assert second_args[second_args.index("--resume") + 1] == "hermes-session-1"
+    assert (Path(agent._temp_home) / "cwd.txt").read_text(encoding="utf-8") == str(
+        workspace.resolve()
+    )
 
     trial_dir = tmp_path / "trial"
     trial_dir.mkdir()
@@ -474,7 +524,11 @@ def test_hermes_train_requires_durable_memos_capture(tmp_path, monkeypatch):
         phase="train", domain="reasoning", split="train",
         task={"name": "omni_1"}, trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(tmp_path / "workspace")},
+        session,
+    )
 
     try:
         with pytest.raises(RuntimeError, match="capture was not persisted"):
@@ -500,7 +554,11 @@ def test_hermes_train_reports_verified_memos_capture(tmp_path, monkeypatch):
         phase="train", domain="reasoning", split="train",
         task={"name": "omni_1"}, trial=1,
     )
-    agent.prepare_task({"name": "omni_1"}, {}, session)
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(tmp_path / "workspace")},
+        session,
+    )
     try:
         result = agent.call("task prompt", session, timeout=5)
     finally:
@@ -591,7 +649,11 @@ def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):
         task={"name": "omni_timeout"},
         trial=1,
     )
-    agent.prepare_task({"name": "omni_timeout"}, {}, session)
+    agent.prepare_task(
+        {"name": "omni_timeout"},
+        {"workspace_dir": str(tmp_path / "workspace-timeout")},
+        session,
+    )
 
     pids: dict[str, int] = {}
     try:
@@ -638,7 +700,11 @@ def test_hermes_home_links_are_relative(tmp_path, monkeypatch):
         trial=1,
     )
     try:
-        agent.prepare_task({"name": "omni_1"}, {}, session)
+        agent.prepare_task(
+            {"name": "omni_1"},
+            {"workspace_dir": str(tmp_path / "workspace")},
+            session,
+        )
     except RuntimeError as exc:
         assert "home_links must be relative" in str(exc)
     else:

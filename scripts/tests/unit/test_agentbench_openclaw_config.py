@@ -233,6 +233,7 @@ def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
     agent.prepare_task(
         {"name": "ir_1"},
         {
+            "workspace_dir": str(tmp_path / "workspace-ir"),
             "mcp_only": True,
             "mcp_servers": {"bcp-search": {"command": "python", "args": ["server.py"]}},
             "disabled_tools": ["exec", "read_file"],
@@ -275,7 +276,11 @@ def test_memos_train_temp_config_disables_automatic_reads_and_writes(tmp_path, m
         task={"name": "train_1"},
         trial=1,
     )
-    agent.prepare_task({"name": "train_1"}, {}, session)
+    agent.prepare_task(
+        {"name": "train_1"},
+        {"workspace_dir": str(tmp_path / "workspace-train")},
+        session,
+    )
 
     try:
         temp_config = json.loads(
@@ -300,6 +305,45 @@ def test_memos_openclaw_lifecycle_does_not_mutate_config_modes():
     )
 
     assert "modes" not in lifecycle
+
+
+def test_openclaw_workspace_cannot_be_overridden_by_global_or_profile_config(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_global_config(tmp_path, {
+        "agents": {
+            "defaults": {"workspace": "/global/default"},
+            "list": [{"id": "main", "default": True, "workspace": "/global/main"}],
+        }
+    })
+    workspace = tmp_path / "trial" / "workspace"
+    agent = OpenClawAgentAdapter({
+        "openclaw_config_patch": {
+            "agents": {"defaults": {"workspace": "/profile/default"}},
+        }
+    })
+    session = agent.build_session_spec(
+        phase="test", domain="reasoning", split="test",
+        task={"name": "omni_1"}, trial=1,
+    )
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(workspace)},
+        session,
+    )
+    try:
+        config = json.loads(
+            (Path(agent._temp_home) / ".openclaw" / "openclaw.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        resolved = str(workspace.resolve())
+        assert config["agents"]["defaults"]["workspace"] == resolved
+        assert config["agents"]["list"][0]["workspace"] == resolved
+    finally:
+        agent.cleanup_task()
 
 
 def test_openclaw_call_recovers_when_cli_does_not_exit_after_session_response(
@@ -344,6 +388,9 @@ time.sleep(30)
         }
     })
     agent._temp_home = str(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agent._workspace_dir = str(workspace)
     session = agent.build_session_spec(
         phase="test_run_1",
         domain="reasoning",

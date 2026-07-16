@@ -95,6 +95,26 @@ def test_knowledge_work_loads_tasks_and_reports_missing_task(tmp_path: Path):
         domain.load_tasks(Namespace(split="test", task="missing"))
 
 
+def test_knowledge_work_populates_framework_workspace(tmp_path: Path):
+    workspace = tmp_path / "phase" / "task__trial_1" / "workspace"
+    domain = create_domain("knowledge_work", {})
+
+    env_info = domain.setup(
+        {
+            "name": "task",
+            "task_id": "task-id",
+            "reference_file_urls": [],
+            "reference_files": [],
+            "_workspace_dir": str(workspace),
+        },
+        "openclaw",
+        1,
+    )
+
+    assert Path(env_info["workspace_dir"]) == workspace
+    assert workspace.is_dir()
+
+
 def test_code_implementation_extracts_last_valid_python_block():
     text = """
 First attempt:

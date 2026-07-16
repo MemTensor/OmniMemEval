@@ -315,6 +315,7 @@ class _FakeAgent:
 
     def __init__(self):
         self.calls = []
+        self.prepared_env_info = []
 
     def build_session_spec(self, *, phase, domain, split, task, trial):
         return SessionSpec(
@@ -324,7 +325,7 @@ class _FakeAgent:
         )
 
     def prepare_task(self, task, env_info, session):
-        pass
+        self.prepared_env_info.append(dict(env_info))
 
     def call(self, prompt, session, timeout=1):
         self.calls.append((prompt, session, timeout))
@@ -360,6 +361,51 @@ def test_runner_writes_full_response_file(tmp_path):
     assert saved["agent_result"]["response_file"] == "response.txt"
     assert saved["agent_result"]["response_chars"] == 10050
     assert "truncated" in saved["agent_result"]["response"]
+
+
+def test_runner_owns_a_clean_workspace_for_every_task_trial(tmp_path):
+    class SharedWorkspaceDomain(_FakeDomain):
+        def setup(self, task, agent_name, trial):
+            # Domains cannot redirect the agent back to a shared directory.
+            return {"workspace_dir": str(tmp_path / "shared")}
+
+    stale_workspace = tmp_path / "task_a__trial_1" / "workspace"
+    stale_workspace.mkdir(parents=True)
+    (stale_workspace / "stale.txt").write_text("old attempt", encoding="utf-8")
+
+    first_agent = _FakeAgent()
+    run_task_once(
+        task={"name": "task_a"},
+        domain=SharedWorkspaceDomain(),
+        agent=first_agent,
+        phase_dir=tmp_path,
+        phase="test",
+        split="test",
+        trial=1,
+        attempt=1,
+        args=Namespace(),
+    )
+    second_agent = _FakeAgent()
+    run_task_once(
+        task={"name": "task_b"},
+        domain=SharedWorkspaceDomain(),
+        agent=second_agent,
+        phase_dir=tmp_path,
+        phase="test",
+        split="test",
+        trial=1,
+        attempt=1,
+        args=Namespace(),
+    )
+
+    first_workspace = Path(first_agent.prepared_env_info[0]["workspace_dir"])
+    second_workspace = Path(second_agent.prepared_env_info[0]["workspace_dir"])
+    assert first_workspace == (tmp_path / "task_a__trial_1" / "workspace").resolve()
+    assert second_workspace == (tmp_path / "task_b__trial_1" / "workspace").resolve()
+    assert first_workspace != second_workspace
+    assert first_workspace.is_dir()
+    assert second_workspace.is_dir()
+    assert not (first_workspace / "stale.txt").exists()
 
 
 def test_train_feedback_reuses_same_session(tmp_path):
