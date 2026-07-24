@@ -2,12 +2,19 @@
 
 [English](./README.md)
 
-AgentBench 是 OmniMemEval 中面向 Agent Runtime 的评测模块，用于评估 OpenClaw 在五个任务域上的任务完成能力，并支持在相同任务集合上独立评测记忆插件。当前提供以下评测协议：
+AgentBench 是 OmniMemEval 中面向 Agent Runtime 的评测模块，用于评估 OpenClaw 和 Hermes 在五个任务域上的任务完成能力，并支持在相同任务集合上独立评测记忆插件。当前提供以下评测协议：
 
 - plain AgentBench：不启用待测记忆插件，执行 `test_only` 或 `train_then_test`。
 - memory plugin AgentBench：按 `memory_train_backup_test` 协议清理、训练、等待沉淀、备份、恢复并测试记忆。
 
 评测结果见 [eval_res_zh.md](./eval_res_zh.md)。
+
+产品评测配置与运行说明：
+
+- [EverOS](./products/everos_zh.md)
+- [Hindsight](./products/hindsight_zh.md)
+- [OpenViking](./products/openviking_zh.md)
+- [Supermemory](./products/supermemory_zh.md)
 
 ## 数据来源声明
 
@@ -337,19 +344,24 @@ verifier feedback、提交 MemOS structured feedback、备份、恢复、测试�
 configs/agentbench/
   agents/{openclaw,hermes}.yaml
   profiles/openclaw/{plain,memos,everos,hindsight,openviking,supermemory}.yaml
-  profiles/hermes/{plain,memos}.yaml
+  profiles/hermes/{plain,memos,hindsight,openviking,supermemory}.yaml
   memory_plugins/memos/lifecycle/{openclaw,hermes}.yaml
   memory_plugins/{everos,hindsight,openviking,supermemory}/lifecycle/openclaw.yaml
+  memory_plugins/{hindsight,openviking,supermemory}/lifecycle/hermes.yaml
 ```
 
 `agents` 只声明 Runtime 和模型；`profiles/<agent>` 声明 plain baseline 或
 插件如何接入该 Runtime；`memory_plugins/<plugin>/lifecycle/<agent>` 只负责
-clear、settle、backup、restore。memory 协议未传 `--profile` 时自动使用与
+安全快照、clear、settle、backup、restore 和 cleanup。memory 协议未传
+`--profile` 时自动使用与
 `--memory-plugin` 同名的 profile，agent/plugin 不匹配会在运行任务前失败。
 
 Hermes profile 不覆盖用户全局的 `platform_toolsets.cli`。adapter 会继承该列表，
 仅在非 `knowledge_work` 域删除 `web`，并只在 `information_retrieval` 域将工具面
 收缩为本地 search MCP。
+除 MemOS 外，产品 profile 也不会替用户选择或启用 memory provider、OpenClaw
+plugin slot。测评用户必须先配置目标产品；lifecycle 会在任何破坏性阶段前校验
+该选择是否正确。
 
 每个配置负责声明：
 

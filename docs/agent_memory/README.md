@@ -2,9 +2,16 @@
 
 [中文版](./README_zh.md)
 
-Agent Memory Evaluation is the AgentBench-based evaluation track in OmniMemEval. It measures the task performance of an agent runtime after a memory plugin is installed. The current implementation evaluates OpenClaw across five task domains and supports both plain agent runs and memory-plugin lifecycle runs.
+Agent Memory Evaluation is the AgentBench-based evaluation track in OmniMemEval. It measures the task performance of an agent runtime after a memory plugin is installed. The current implementation evaluates OpenClaw and Hermes across five task domains and supports both plain agent runs and memory-plugin lifecycle runs.
 
 Results are recorded in [eval_res.md](./eval_res.md).
+
+Product-specific configuration and execution guides:
+
+- [EverOS](./products/everos.md)
+- [Hindsight](./products/hindsight.md)
+- [OpenViking](./products/openviking.md)
+- [Supermemory](./products/supermemory.md)
 
 ## Evaluation Protocols
 
@@ -299,19 +306,24 @@ Configuration is split into three layers:
 configs/agentbench/
   agents/{openclaw,hermes}.yaml
   profiles/openclaw/{plain,memos,everos,hindsight,openviking,supermemory}.yaml
-  profiles/hermes/{plain,memos}.yaml
+  profiles/hermes/{plain,memos,hindsight,openviking,supermemory}.yaml
   memory_plugins/memos/lifecycle/{openclaw,hermes}.yaml
   memory_plugins/{everos,hindsight,openviking,supermemory}/lifecycle/openclaw.yaml
+  memory_plugins/{hindsight,openviking,supermemory}/lifecycle/hermes.yaml
 ```
 
 `agents` owns runtime/model defaults, `profiles/<agent>` owns the runtime-specific
 plain or memory integration, and lifecycle configs own clear, settle, backup, and
-restore only. Memory protocols infer `--profile` from `--memory-plugin`; mismatched
+restore protocol stages, including safety snapshot and cleanup. Memory protocols
+infer `--profile` from `--memory-plugin`; mismatched
 agent/plugin declarations fail before tasks start.
 
 Hermes profiles do not replace the user's global `platform_toolsets.cli`.
 The adapter inherits that list, removes only `web` outside `knowledge_work`,
 and narrows `information_retrieval` to its local search MCP tool only.
+Non-MemOS product profiles also do not select or enable a memory provider or
+OpenClaw plugin slot. The evaluation user must configure the intended product;
+the lifecycle validates that selection before any destructive stage.
 
 Each config declares:
 
