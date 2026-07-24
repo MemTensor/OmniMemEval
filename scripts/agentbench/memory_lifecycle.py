@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from string import Template
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,8 +38,11 @@ class CommandMemoryLifecycle:
         version: str,
     ) -> None:
         self.config = config
-        self.project_dir = project_dir
-        self.run_dir = run_dir
+        self.project_dir = Path(project_dir).expanduser().resolve()
+        candidate_run_dir = Path(run_dir).expanduser()
+        if not candidate_run_dir.is_absolute():
+            candidate_run_dir = self.project_dir / candidate_run_dir
+        self.run_dir = candidate_run_dir.resolve()
         self.run_id = run_id
         self.version = version
         self.run_date = datetime.now().strftime("%F")
@@ -48,8 +52,8 @@ class CommandMemoryLifecycle:
         self._original_home_env = self._capture_original_home_env()
         self.backup_dir = self._path(config.get("backup_dir") or "~/memory_backup")
         self.backup_dir.mkdir(parents=True, exist_ok=True)
-        self.log_file = run_dir / "memory_lifecycle.log"
-        self.manifest_file = run_dir / "memory_lifecycle.json"
+        self.log_file = self.run_dir / "memory_lifecycle.log"
+        self.manifest_file = self.run_dir / "memory_lifecycle.json"
         self._events: list[dict[str, Any]] = []
         self._validate_configuration()
 
@@ -412,6 +416,7 @@ class CommandMemoryLifecycle:
             "global_backup_file": str(backup_file),
             "project_dir": str(self.project_dir),
             "run_dir": str(self.run_dir),
+            "python": sys.executable,
             "home": str(Path.home()),
             "openclaw_home": os.environ.get("OPENCLAW_HOME", str(Path.home() / ".openclaw")),
             "original_home": self._original_home_env,

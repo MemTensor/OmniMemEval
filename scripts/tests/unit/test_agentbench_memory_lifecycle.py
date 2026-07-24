@@ -79,6 +79,20 @@ def test_global_snapshot_uses_an_independent_file_and_expected_trials_env(tmp_pa
     assert (tmp_path / "run" / "expected").read_text(encoding="utf-8") == "5"
 
 
+def test_lifecycle_python_token_uses_the_framework_interpreter(tmp_path):
+    config = _config(tmp_path)
+    config["commands"]["validate"] = (
+        '"@python@" -c \'import pathlib,sys; '
+        'pathlib.Path(sys.argv[1]).write_text(sys.executable)\' '
+        '"@run_dir@/python-path"'
+    )
+    lifecycle = _lifecycle(tmp_path, config)
+
+    lifecycle.validate("reasoning")
+
+    assert (tmp_path / "run" / "python-path").read_text() == sys.executable
+
+
 def test_checkpoint_uses_stable_resume_file(tmp_path):
     lifecycle = _lifecycle(tmp_path)
 
@@ -108,6 +122,25 @@ def test_runtime_env_is_rendered_for_adapters_and_restored_exactly(tmp_path, mon
     assert os.environ["HERMES_HOME"] == str(original_home)
     assert "PLUGIN_HOME" not in os.environ
     assert "OMNIMEMEVAL_ORIGINAL_HERMES_HOME" not in os.environ
+
+
+def test_relative_run_dir_is_normalized_before_rendering_runtime_env(tmp_path):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    relative_run_dir = Path("results") / "relative-run"
+    lifecycle = CommandMemoryLifecycle(
+        config=_config(tmp_path),
+        project_dir=project_dir,
+        run_dir=relative_run_dir,
+        run_id="run-1",
+        version="version-1",
+    )
+
+    assert lifecycle.run_dir == project_dir / relative_run_dir
+    assert lifecycle.runtime_env()["HERMES_HOME"] == str(
+        project_dir / relative_run_dir / "runtime" / "hermes"
+    )
+    assert lifecycle.log_file == project_dir / relative_run_dir / "memory_lifecycle.log"
 
 
 def test_finalize_writes_manifest_even_when_finalize_command_fails(tmp_path):
