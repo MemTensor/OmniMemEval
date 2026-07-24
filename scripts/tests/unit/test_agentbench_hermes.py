@@ -263,7 +263,7 @@ def test_hermes_profiles_do_not_override_global_cli_toolsets():
         assert "platform_toolsets" not in patch
 
 
-def test_hermes_memos_test_uses_temp_readonly_provider(tmp_path, monkeypatch):
+def test_hermes_memos_test_uses_normal_writable_provider(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("HERMES_HOME", raising=False)
     global_config = {
@@ -294,15 +294,16 @@ def test_hermes_memos_test_uses_temp_readonly_provider(tmp_path, monkeypatch):
     try:
         temp_home = Path(agent._temp_home)
         temp_config = yaml.safe_load((temp_home / "config.yaml").read_text(encoding="utf-8"))
-        readonly_provider = temp_home / "plugins" / "omnimemeval_memos_readonly"
+        writable_provider = temp_home / "plugins" / "omnimemeval_memos"
 
         assert temp_config["memory"] == {
             "memory_enabled": False,
             "user_profile_enabled": False,
-            "provider": "omnimemeval_memos_readonly",
+            "provider": "omnimemeval_memos",
         }
-        assert readonly_provider.is_symlink()
-        assert (readonly_provider / "__init__.py").exists()
+        assert writable_provider.is_symlink()
+        assert (writable_provider / "__init__.py").exists()
+        assert not (temp_home / "plugins" / "omnimemeval_memos_readonly").exists()
         assert json.loads(
             (tmp_path / ".hermes" / "config.yaml").read_text(encoding="utf-8")
         ) == global_config
@@ -627,6 +628,84 @@ def test_hermes_memos_non_timeout_does_not_claim_an_unresolved_episode(monkeypat
 
     assert provider._episode_id == ""
     assert not provider._has_unresolved_episode()
+
+
+def test_hermes_memos_turn_end_timeout_retries_without_large_tool_payload(monkeypatch):
+    module = _load_memos_overlay(monkeypatch)
+
+    class RpcTimeout(RuntimeError):
+        code = "timeout"
+
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, params=None, *, timeout=30.0):
+            self.calls.append((method, params, timeout))
+            if len(self.calls) == 1:
+                raise RpcTimeout("turn.end did not respond within 30s")
+            return {"episodeId": "episode-real", "traceId": "trace-fallback"}
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = FakeBridge()
+    provider._episode_id = "episode-real"
+
+    trace_id = provider._turn_end(
+        "task",
+        "final answer",
+        [{"name": "exec", "result": "x" * 1000}],
+        int(time.time() * 1000),
+    )
+
+    assert trace_id == "trace-fallback"
+    assert [method for method, _, _ in provider._bridge.calls] == [
+        "turn.end",
+        "turn.end",
+    ]
+    first_payload = provider._bridge.calls[0][1]
+    fallback_payload = provider._bridge.calls[1][1]
+    assert len(first_payload["toolCalls"]) == 1
+    assert fallback_payload["episodeId"] == "episode-real"
+    assert fallback_payload["toolCalls"] == []
+    assert fallback_payload["agentText"] == "final answer"
+    assert fallback_payload["contextHints"]["omnimemevalCaptureFallback"] == (
+        "turn_end_rpc_timeout"
+    )
+    assert fallback_payload["contextHints"]["omnimemevalDroppedToolCalls"] == 1
+
+
+def test_hermes_memos_compacts_oversized_tool_payload_before_first_request(monkeypatch):
+    module = _load_memos_overlay(monkeypatch)
+
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, params=None, *, timeout=30.0):
+            self.calls.append((method, params, timeout))
+            return {"episodeId": "episode-real", "traceId": "trace-compact"}
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = FakeBridge()
+    provider._episode_id = "episode-real"
+    tool_calls = [
+        {"name": "search", "result": "document"}
+        for _ in range(provider._TOOL_CALL_COUNT_LIMIT + 1)
+    ]
+
+    trace_id = provider._turn_end(
+        "task", "final answer", tool_calls, int(time.time() * 1000)
+    )
+
+    assert trace_id == "trace-compact"
+    assert len(provider._bridge.calls) == 1
+    payload = provider._bridge.calls[0][1]
+    assert payload["toolCalls"] == []
+    assert payload["agentText"] == "final answer"
+    assert payload["contextHints"]["omnimemevalCaptureFallback"] == (
+        "oversized_tool_transcript"
+    )
+    assert payload["contextHints"]["omnimemevalDroppedToolCalls"] == len(tool_calls)
 
 
 def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):

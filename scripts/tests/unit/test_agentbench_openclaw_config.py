@@ -192,7 +192,7 @@ def test_memos_profile_enables_only_selected_memory_integration():
     assert cfg["runtime"]["disabled_plugin_names"] == ["memos-local-plugin", "mem0"]
 
 
-def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
+def test_memos_test_config_is_search_only_and_does_not_modify_global_config(
     tmp_path,
     monkeypatch,
 ):
@@ -208,6 +208,7 @@ def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
                     "config": {
                         "memory_search": {"enabled": False},
                         "memory_add": {"enabled": True},
+                        "viewerPort": 19000,
                     },
                 },
             },
@@ -248,8 +249,12 @@ def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
 
         assert set(temp_config["plugins"]["entries"]) == {"memos-local-plugin"}
         assert set(temp_config["mcp"]["servers"]) == {"bcp-search"}
-        assert entry["config"]["memory_search"]["enabled"] is True
-        assert entry["config"]["memory_add"]["enabled"] is False
+        assert temp_config["agents"]["defaults"]["heartbeat"]["every"] == "0m"
+        assert entry["config"] == {
+            "memory_search": {"enabled": True},
+            "memory_add": {"enabled": False},
+            "viewerPort": 19000,
+        }
         assert "alsoAllow" not in temp_config["tools"]
         assert "memos_search" in temp_config["tools"]["deny"]
         assert json.loads(
@@ -259,7 +264,7 @@ def test_memos_test_config_is_retrieval_only_and_does_not_modify_global_config(
         agent.cleanup_task()
 
 
-def test_memos_train_temp_config_disables_automatic_reads_and_writes(tmp_path, monkeypatch):
+def test_memos_train_temp_config_is_capture_only(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     _write_global_config(tmp_path, {})
     config_dir = tmp_path / ".openclaw"
@@ -286,9 +291,11 @@ def test_memos_train_temp_config_disables_automatic_reads_and_writes(tmp_path, m
         temp_config = json.loads(
             (Path(agent._temp_home) / ".openclaw" / "openclaw.json").read_text(encoding="utf-8")
         )
-        plugin_config = temp_config["plugins"]["entries"]["memos-local-plugin"]["config"]
-        assert plugin_config["memory_search"]["enabled"] is False
-        assert plugin_config["memory_add"]["enabled"] is False
+        entry = temp_config["plugins"]["entries"]["memos-local-plugin"]
+        assert entry["config"] == {
+            "memory_search": {"enabled": False},
+            "memory_add": {"enabled": True},
+        }
     finally:
         agent.cleanup_task()
 
@@ -305,6 +312,7 @@ def test_memos_openclaw_lifecycle_does_not_mutate_config_modes():
     )
 
     assert "modes" not in lifecycle
+    assert lifecycle["execution"]["capture_mode"] == "automatic"
 
 
 def test_openclaw_workspace_cannot_be_overridden_by_global_or_profile_config(

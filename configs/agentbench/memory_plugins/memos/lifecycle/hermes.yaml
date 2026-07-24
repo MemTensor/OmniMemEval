@@ -43,6 +43,7 @@ commands:
       exit 1
     }
     command -v node >/dev/null
+    command -v timeout >/dev/null
     command -v curl >/dev/null
     test -d "$original"
     test -f "$original/config.yaml"
@@ -162,8 +163,8 @@ commands:
         node "$plugin/dist/bridge.cjs" --agent=hermes --no-viewer </dev/null \
         >>"$plugin/logs/prewarm.log" 2>&1
       [ -s "$db" ] || { echo "Hermes MemOS prewarm did not create $db" >&2; return 1; }
-      required="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue');")"
-      [ "$required" = "4" ] || { echo "Hermes MemOS prewarm did not create required pipeline tables" >&2; return 1; }
+      required="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue','evolution_jobs');")"
+      [ "$required" = "5" ] || { echo "Hermes MemOS prewarm did not create required pipeline tables" >&2; return 1; }
       test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
     }
 
@@ -219,20 +220,34 @@ commands:
     }
     schema_ready() {
       [ -s "$db" ] || return 1
-      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue');")" = "4" ]
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue','evolution_jobs');")" = "5" ]
     }
-    episode_gate() {
-      local closed total empty
+    session_gate() {
+      local sessions empty_sessions
+      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
+      empty_sessions="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM (SELECT session_id FROM episodes GROUP BY session_id HAVING sum(CASE WHEN trace_ids_json <> '[]' THEN 1 ELSE 0 END) = 0);")"
+      [ "$sessions" -eq "$expected" ] && [ "$empty_sessions" -eq 0 ]
+    }
+    settled_gate() {
+      local closed total empty sessions embedding_jobs embedding_failures evolution_jobs evolution_dead
       closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
       total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
       empty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE trace_ids_json='[]';")"
-      [ "$closed" -eq "$expected" ] && [ "$total" -eq "$expected" ] && [ "$empty" -eq 0 ]
+      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
+      embedding_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
+      embedding_failures="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status='failed';")"
+      evolution_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status IN ('queued','leased','failed');")"
+      evolution_dead="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status='dead_letter';")"
+      [ "$sessions" -eq "$expected" ] && [ "$total" -ge "$expected" ] \
+        && [ "$closed" -eq "$total" ] && [ "$empty" -eq 0 ] \
+        && [ "$embedding_jobs" -eq 0 ] && [ "$embedding_failures" -eq 0 ] \
+        && [ "$evolution_jobs" -eq 0 ] && [ "$evolution_dead" -eq 0 ]
     }
 
-    # First wait until every expected episode is durably closed.  Then request
-    # graceful shutdown from every bridge belonging to this run.  MemOS
-    # core.shutdown drains reward/reflection/L2/L3 subscribers, so process exit
-    # is the reliable in-memory pending/inflight barrier that log silence was not.
+    # A long conversation may roll over into multiple MemOS episodes while
+    # retaining one trial session id.  First wait for every expected session to
+    # have durable non-empty state.  Reconciliation below closes any orphan
+    # continuation episode and drains the pipeline before the backup.
     # Training calls have already returned, so a missing/empty DB or missing
     # schema cannot become valid through a still-running model request.  Fail
     # immediately instead of spending the whole settle timeout on bad state.
@@ -241,17 +256,17 @@ commands:
 
     deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-      if schema_ready && episode_gate; then break; fi
+      if schema_ready && session_gate; then break; fi
       if [ -z "$(capture_pids)" ]; then
-        closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
+        sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
         total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
-        echo "Hermes MemOS capture bridges have exited but episode gate is unsatisfied: expected=$expected closed=$closed total=$total" >&2
+        echo "Hermes MemOS capture bridges have exited but session gate is unsatisfied: expected=$expected sessions=$sessions total_episodes=$total" >&2
         exit 1
       fi
       sleep 5
     done
     schema_ready || { echo "Hermes MemOS DB/schema was not created" >&2; exit 1; }
-    episode_gate || { echo "Hermes MemOS expected exactly $expected closed non-empty episodes" >&2; exit 1; }
+    session_gate || { echo "Hermes MemOS expected exactly $expected distinct non-empty trial sessions" >&2; exit 1; }
 
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
     shutdown_deadline=$((SECONDS + term_timeout))
@@ -264,10 +279,16 @@ commands:
       exit 1
     }
 
+    # Keep stdin open while one run-scoped headless bridge recovers leases and
+    # drains the single-consumer evolution/embedding queues. A bridge started
+    # with </dev/null exits immediately and can leave durable work unfinished.
+    bash "${OMNIMEMEVAL_PROJECT_DIR:?project directory is required}/scripts/agentbench/hermes_memos_drain.sh"
+
     schema_ready
-    episode_gate
-    queued="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
-    [ "$queued" -eq 0 ] || { echo "Hermes MemOS still has $queued pending/inflight embedding jobs" >&2; exit 1; }
+    settled_gate || {
+      echo "Hermes MemOS did not settle after reconciliation: expected=$expected distinct sessions, all episodes closed/non-empty, and no pending/inflight/failed embedding or evolution jobs" >&2
+      exit 1
+    }
     test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
     BASH
 
@@ -361,19 +382,34 @@ commands:
     start_daemon_if_safe
     BASH
 
+  finalize: |
+    bash <<'BASH'
+    set -euo pipefail
+    db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
+    # An exception before MemOS creates the run database has nothing to drain;
+    # preserve the original benchmark error instead of manufacturing another.
+    [ -s "$db" ] || exit 0
+    bash "${OMNIMEMEVAL_PROJECT_DIR:?project directory is required}/scripts/agentbench/hermes_memos_drain.sh"
+    BASH
+
   checkpoint: |
     bash <<'BASH'
     set -euo pipefail
     umask 077
     db="${MEMOS_DB:?run-scoped MEMOS_DB is required}"
     dest="@backup_file@"
-    case "$dest" in *"'"*) echo "checkpoint path cannot contain a single quote" >&2; exit 1;; esac
+    train_baseline="@backup_dir@/memos-hermes-@domain@-@run_date@-@run_id@.sqlite3"
+    source="$db"
+    # A same-version rerun must resume the durable training baseline, not a DB
+    # polluted by the previous test phase's sessions and writes.
+    [ -s "$train_baseline" ] && source="$train_baseline"
+    case "$dest$source" in *"'"*) echo "checkpoint path cannot contain a single quote" >&2; exit 1;; esac
     mkdir -p "$(dirname "$dest")"
     chmod 700 "$(dirname "$dest")"
     rm -f "$dest" "$dest.tmp"
-    [ -s "$db" ] || exit 0
+    [ -s "$source" ] || exit 0
     command -v sqlite3 >/dev/null
-    sqlite3 -cmd ".timeout 30000" "$db" ".backup '$dest.tmp'"
+    sqlite3 -cmd ".timeout 30000" "$source" ".backup '$dest.tmp'"
     test "$(sqlite3 "$dest.tmp" 'PRAGMA quick_check;')" = "ok"
     mv "$dest.tmp" "$dest"
     chmod 600 "$dest"

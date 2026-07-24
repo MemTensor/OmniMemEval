@@ -12,7 +12,10 @@ agent_patch:
   runtime:
     home_mode: isolated_copy
     train_memory_provider: omnimemeval_memos
-    test_memory_provider: omnimemeval_memos_readonly
+    # Use the same normal read/write provider in both phases. The independent
+    # memory_add/memory_search switches currently belong to the OpenClaw
+    # adapter and are not yet exposed by the Hermes provider.
+    test_memory_provider: omnimemeval_memos
     # A successful Hermes CLI call is not a technical success unless its
     # writable MemOS bridge durably produced a closed, non-empty episode.
     verify_memos_capture: true
@@ -25,7 +28,3 @@ agent_patch:
     plugins:
       enabled:
         - memtensor
-  hermes_phase_config_patches:
-    test:
-      memory:
-        provider: omnimemeval_memos_readonly

@@ -197,6 +197,7 @@ class OpenClawAgentAdapter(AgentAdapter):
         phase_patch = self._phase_config_patch()
         if phase_patch:
             config = deep_merge(config, phase_patch)
+        self._drop_plugin_config_keys(config)
         if self._task_env_info.get("mcp_only"):
             self._restrict_mcp_only_config(config, mcp_section)
         self._filter_disabled_plugins(config)
@@ -228,6 +229,39 @@ class OpenClawAgentAdapter(AgentAdapter):
             return {}
         patch = patches.get(key) if isinstance(patches, dict) else None
         return dict(patch) if isinstance(patch, dict) else {}
+
+    def _drop_plugin_config_keys(self, config: dict) -> None:
+        """Remove obsolete plugin options from an isolated evaluation home.
+
+        The source OpenClaw config may retain settings from an older plugin
+        build. Profiles can list only the keys that are unsafe to inherit;
+        unrelated plugin configuration is preserved.
+        """
+
+        configured = self._runtime().get("drop_plugin_config_keys") or {}
+        if not configured:
+            return
+        if not isinstance(configured, dict):
+            raise RuntimeError("runtime.drop_plugin_config_keys must be an object")
+
+        entries = (config.get("plugins") or {}).get("entries")
+        if not isinstance(entries, dict):
+            return
+        for plugin_name, keys in configured.items():
+            if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+                raise RuntimeError(
+                    "runtime.drop_plugin_config_keys values must be lists of strings"
+                )
+            entry = entries.get(str(plugin_name))
+            if not isinstance(entry, dict):
+                continue
+            plugin_config = entry.get("config")
+            if not isinstance(plugin_config, dict):
+                continue
+            for key in keys:
+                plugin_config.pop(key, None)
+            if not plugin_config:
+                entry.pop("config", None)
 
     def _mcp_only_preserved_plugin_names(self) -> set[str]:
         names = self._runtime().get("mcp_only_preserve_plugin_names") or []

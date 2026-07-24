@@ -27,6 +27,13 @@ agent_patch:
     transport: gateway
     gateway_mode: per_trial
   openclaw_config_patch:
+    # Per-trial gateways must not inherit the user's background heartbeat.
+    # Heartbeat turns are unrelated to the benchmark and would otherwise be
+    # captured as extra MemOS episodes in the shared run database.
+    agents:
+      defaults:
+        heartbeat:
+          every: "0m"
     plugins:
       enabled: true
       allow:
@@ -36,13 +43,19 @@ agent_patch:
       entries:
         memos-local-plugin:
           enabled: true
+          # Fallback for non-evaluation phases. Train/test override these
+          # values below inside each isolated per-trial OpenClaw home.
           config:
+            memory_search:
+              enabled: true
             memory_add:
-              enabled: false
+              enabled: true
           hooks:
             allowConversationAccess: true
-  # These patches are applied while building each isolated OPENCLAW_HOME.
-  # Training uses explicit structured feedback capture; tests retrieve only.
+  # Training captures new experience without retrieving existing memory;
+  # tests retrieve the fixed training baseline without capturing test turns.
+  # These phase patches override inherited user settings but never modify the
+  # user's global OpenClaw configuration.
   openclaw_phase_config_patches:
     train:
       plugins:
@@ -52,7 +65,7 @@ agent_patch:
               memory_search:
                 enabled: false
               memory_add:
-                enabled: false
+                enabled: true
     test:
       plugins:
         entries:

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
+import hashlib
 import json
 import os
+import socket
 import sqlite3
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -12,6 +15,102 @@ from agentbench.session import SessionSpec
 from agentbench.session_capture import build_task_feedback_turns
 
 MANUAL_MEMOS_SOURCE = "omnimemeval_agentbench_feedback"
+
+
+def _openclaw_runtime_socket_path(memos_home: Path) -> Path:
+    """Mirror the plugin's short, run-home-scoped Unix socket path."""
+    root = str(memos_home.expanduser().resolve())
+    digest = hashlib.sha256(root.encode()).hexdigest()[:24]
+    uid = os.getuid() if hasattr(os, "getuid") else "nouid"
+    return Path(tempfile.gettempdir()) / f"memos-openclaw-{uid}-{digest}.sock"
+
+
+class SharedOpenClawRuntimeClient:
+    """Small JSON-RPC client for the existing run-scoped MemOS owner.
+
+    This client deliberately cannot launch ``bridge.mjs`` or a second
+    MemoryCore. A missing owner socket is a technical failure: silently
+    falling back to another process would reintroduce concurrent evolution
+    against the same SQLite database.
+    """
+
+    def __init__(self, socket_path: Path, *, connect_timeout: float = 5.0):
+        self.socket_path = Path(socket_path)
+        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._reader = None
+        self._next_id = 1
+        self._lock = threading.Lock()
+        deadline = time.monotonic() + max(0.0, connect_timeout)
+        while True:
+            try:
+                self._socket.connect(str(self.socket_path))
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    self._socket.close()
+                    raise RuntimeError(
+                        f"MemOS shared runtime socket unavailable: {self.socket_path}: {exc}"
+                    ) from exc
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        self._reader = self._socket.makefile("r", encoding="utf-8")
+
+    def request(self, method: str, params=None, *, timeout: float = 180.0):
+        with self._lock:
+            if self._reader is None:
+                raise RuntimeError("MemOS shared runtime client is closed")
+            request_id = self._next_id
+            self._next_id += 1
+            payload = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params,
+            }
+            self._socket.settimeout(max(0.001, float(timeout)))
+            try:
+                self._socket.sendall((json.dumps(payload) + "\n").encode())
+                line = self._reader.readline()
+            except (OSError, TimeoutError) as exc:
+                self.close()
+                raise RuntimeError(
+                    f"MemOS shared runtime RPC {method} failed: {exc}"
+                ) from exc
+            if not line:
+                self.close()
+                raise RuntimeError(
+                    f"MemOS shared runtime closed before replying to {method}"
+                )
+            try:
+                response = json.loads(line)
+            except json.JSONDecodeError as exc:
+                self.close()
+                raise RuntimeError(
+                    f"MemOS shared runtime returned invalid JSON for {method}"
+                ) from exc
+            if response.get("id") != request_id:
+                self.close()
+                raise RuntimeError(
+                    f"MemOS shared runtime response id mismatch for {method}"
+                )
+            error = response.get("error")
+            if error:
+                raise RuntimeError(
+                    f"MemOS shared runtime RPC {method} failed: "
+                    f"{error.get('message', error)}"
+                )
+            return response.get("result")
+
+    def close(self) -> None:
+        reader, self._reader = self._reader, None
+        if reader is not None:
+            try:
+                reader.close()
+            except OSError:
+                pass
+        try:
+            self._socket.close()
+        except OSError:
+            pass
 
 
 def _now_ms() -> int:
@@ -59,6 +158,43 @@ def _memos_db_path(openclaw_home: Path) -> Path:
     return openclaw_home / "memos-plugin" / "data" / "memos.db"
 
 
+def _memos_runtime_home(openclaw_home: Path) -> Path:
+    configured = os.environ.get("MEMOS_PLUGIN_HOME") or os.environ.get("MEMOS_HOME")
+    return Path(configured).expanduser() if configured else openclaw_home / "memos-plugin"
+
+
+def _connect_shared_openclaw_runtime(
+    openclaw_home: Path,
+    *,
+    timeout: float,
+) -> SharedOpenClawRuntimeClient:
+    runtime_home = _memos_runtime_home(openclaw_home).resolve()
+    client = SharedOpenClawRuntimeClient(
+        _openclaw_runtime_socket_path(runtime_home),
+        connect_timeout=min(5.0, max(0.1, timeout)),
+    )
+    try:
+        health = client.request("core.health", None, timeout=min(5.0, max(0.1, timeout)))
+        health_data = health if isinstance(health, dict) else {}
+        actual_db = Path(str(health_data.get("paths", {}).get("db", ""))).resolve()
+        expected_db = (runtime_home / "data" / "memos.db").resolve()
+        if (
+            not isinstance(health, dict)
+            or health.get("ok") is not True
+            or health.get("agent") != "openclaw"
+            or actual_db != expected_db
+        ):
+            raise RuntimeError(
+                "MemOS shared runtime identity mismatch: "
+                f"agent={health_data.get('agent')} "
+                f"db={actual_db} expected={expected_db}"
+            )
+        return client
+    except BaseException:
+        client.close()
+        raise
+
+
 def _memos_plugin_root(openclaw_home: Path) -> Path:
     candidates = []
     if os.environ.get("MEMOS_PLUGIN_ROOT"):
@@ -73,18 +209,6 @@ def _memos_plugin_root(openclaw_home: Path) -> Path:
             return candidate.resolve()
     checked = ", ".join(str(item) for item in candidates)
     raise RuntimeError(f"Cannot locate memos-local-plugin bridge.cts; checked: {checked}")
-
-
-def _load_memos_bridge_client(plugin_root: Path):
-    client_path = plugin_root / "adapters" / "hermes" / "memos_provider" / "bridge_client.py"
-    if not client_path.exists():
-        raise RuntimeError(f"MemOS bridge client not found: {client_path}")
-    spec = importlib.util.spec_from_file_location("_omnimemeval_memos_bridge_client", client_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot import MemOS bridge client: {client_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.MemosBridgeClient
 
 
 def _text_from_content(content, field: str = "text") -> str:
@@ -440,6 +564,31 @@ def _normalize_trace_ref(trace: dict | None) -> dict:
     }
 
 
+def _close_structured_feedback_episode(
+    client,
+    *,
+    episode_id: str,
+    capture: dict,
+    timeout: float,
+) -> dict:
+    """Close only episodes opened by this temporary bridge client.
+
+    With automatic OpenClaw capture, the shared runtime daemon owns the
+    episode lifecycle.  A short-lived feedback bridge can persist feedback to
+    that episode through SQLite, but it cannot close the daemon's in-memory
+    episode and would incorrectly raise ``episode_not_found``.  Manual capture
+    creates/reopens the episode in this bridge, so that path still closes it
+    normally and waits for its pipeline to drain.
+    """
+    if capture.get("status") != "captured":
+        return {"ok": True, "owner": "shared_runtime"}
+    return client.request(
+        "episode.close",
+        {"episodeId": episode_id},
+        timeout=timeout,
+    )
+
+
 def _context_hints(
     *,
     session: SessionSpec,
@@ -587,8 +736,7 @@ def submit_memos_feedback_artifact(
 
     full_session_id = session.openclaw_gateway_session_id
     plugin_root = _memos_plugin_root(openclaw_home)
-    BridgeClient = _load_memos_bridge_client(plugin_root)
-    client = BridgeClient(agent="openclaw", no_viewer=True)
+    client = _connect_shared_openclaw_runtime(openclaw_home, timeout=timeout)
     try:
         capture = _manual_capture_feedback_trace(
             client=client,
@@ -699,47 +847,31 @@ def submit_memos_structured_feedback(
 
     full_session_id = session.openclaw_gateway_session_id
     plugin_root = _memos_plugin_root(openclaw_home)
-    BridgeClient = _load_memos_bridge_client(plugin_root)
-    client = BridgeClient(agent="openclaw", no_viewer=True)
+    client = _connect_shared_openclaw_runtime(openclaw_home, timeout=timeout)
     try:
-        repair = _repair_feedback_bootstrap_episode(db_path, full_session_id)
-        trace = _find_feedback_trace(db_path, full_session_id, timeout=min(5.0, max(1.0, timeout)))
-        capture = {"status": "not_needed"}
+        # The OpenClaw hook watchdog may return before the daemon-owned
+        # turn.end finishes. Wait for that canonical write; replaying the
+        # transcript would enqueue the same memory evolution a second time.
+        # The shared runtime is the only writer/processor for this path, so we
+        # also never repair its live SQLite rows from the evaluator process.
+        repair = {"status": "not_needed", "owner": "shared_runtime"}
+        capture = {"status": "not_needed", "owner": "shared_runtime"}
+        trace = _find_feedback_trace(
+            db_path,
+            full_session_id,
+            timeout=min(300.0, max(5.0, timeout)),
+        )
         if trace.get("error"):
-            capture = _manual_capture_feedback_trace(
-                client=client,
-                full_session_id=full_session_id,
-                session_file=session_file,
-                session=session,
-                domain_name=domain_name,
-                task=task,
-                env_info=env_info,
-                phase_dir=phase_dir,
-                timeout=timeout,
-            )
-            if capture.get("status") != "captured":
-                return {
-                    "status": "error",
-                    "session_id": full_session_id,
-                    "db_path": str(db_path),
-                    "repair": repair,
-                    "capture": capture,
-                    "initial_trace_lookup": trace,
-                    "plugin_root": str(plugin_root),
-                }
-            trace = {
-                "episode_id": capture["episode_id"],
-                "trace_id": capture["feedback_trace_id"],
+            return {
+                "status": "error",
+                "session_id": full_session_id,
+                "db_path": str(db_path),
+                "repair": repair,
+                "capture": capture,
+                "error": "feedback_trace_not_found",
+                "trace_lookup": trace,
+                "plugin_root": str(plugin_root),
             }
-            if capture.get("feedback_episode_id") != capture.get("episode_id"):
-                moved = _move_trace_to_episode(
-                    db_path,
-                    capture["feedback_trace_id"],
-                    capture["episode_id"],
-                )
-                capture["feedback_trace_moved"] = moved
-                if moved:
-                    capture["feedback_episode_id"] = capture["episode_id"]
         trace = _normalize_trace_ref(trace)
         if not trace["episode_id"] or not trace["trace_id"]:
             return {
@@ -774,9 +906,10 @@ def submit_memos_structured_feedback(
             },
             timeout=timeout,
         )
-        close_result = client.request(
-            "episode.close",
-            {"episodeId": trace["episode_id"]},
+        close_result = _close_structured_feedback_episode(
+            client,
+            episode_id=trace["episode_id"],
+            capture=capture,
             timeout=timeout,
         )
     finally:

@@ -12,7 +12,9 @@ resume_file_template: "@backup_dir@/memos-openclaw-@domain@-@run_id@-resume.sqli
 settle_seconds: 0
 
 execution:
-  capture_mode: manual_after_feedback
+  # Keep the plugin's native agent hooks active. Structured verifier feedback
+  # augments the captured turn; it no longer replaces automatic capture.
+  capture_mode: automatic
   max_parallel: 12
   capture_parallel: 1
 
@@ -46,6 +48,7 @@ commands:
     original="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?original OpenClaw home was not captured}"
     command -v sqlite3 >/dev/null
     command -v node >/dev/null
+    command -v timeout >/dev/null
     test -d "$original"
     test -f "$original/openclaw.json"
     test -d "$original/extensions/memos-local-plugin"
@@ -117,7 +120,10 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *bridge.cjs*|*bridge.mjs*|*bridge.cts*|*runtime-daemon.js*|*runtime-daemon.ts*|*runtime-stdio-proxy.js*|*runtime-stdio-proxy.ts*)
+            printf '%s\n' "$pid";;
+        esac
       done
     }
     pids="$(runtime_pids)"
@@ -156,32 +162,109 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *bridge.cjs*|*bridge.mjs*|*bridge.cts*|*runtime-daemon.js*|*runtime-daemon.ts*|*runtime-stdio-proxy.js*|*runtime-stdio-proxy.ts*)
+            printf '%s\n' "$pid";;
+        esac
       done
     }
-    database_gate() {
+    schema_ready() {
       [ -s "$db" ] || return 1
-      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','embedding_retry_queue');")" = "3" ] || return 1
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','embedding_retry_queue','evolution_jobs');")" = "4" ] || return 1
+    }
+    session_gate() {
+      local sessions empty_sessions
+      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
+      empty_sessions="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM (SELECT session_id FROM episodes GROUP BY session_id HAVING sum(CASE WHEN trace_ids_json <> '[]' THEN 1 ELSE 0 END) = 0);")"
+      [ "$sessions" -eq "$expected" ] && [ "$empty_sessions" -eq 0 ]
+    }
+    settled_gate() {
+      local closed total empty sessions embedding_jobs embedding_failures evolution_jobs evolution_dead
       closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
       total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
       empty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE trace_ids_json='[]';")"
-      queued="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
-      [ "$closed" -eq "$expected" ] && [ "$total" -eq "$expected" ] \
-        && [ "$empty" -eq 0 ] && [ "$queued" -eq 0 ]
+      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
+      embedding_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
+      embedding_failures="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status='failed';")"
+      evolution_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status IN ('queued','leased','failed');")"
+      evolution_dead="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status='dead_letter';")"
+      [ "$sessions" -eq "$expected" ] && [ "$total" -ge "$expected" ] \
+        && [ "$closed" -eq "$total" ] && [ "$empty" -eq 0 ] \
+        && [ "$embedding_jobs" -eq 0 ] && [ "$embedding_failures" -eq 0 ] \
+        && [ "$evolution_jobs" -eq 0 ] && [ "$evolution_dead" -eq 0 ]
+    }
+    evolution_idle() {
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status IN ('queued','leased','failed');")" -eq 0 ]
+    }
+    embedding_idle() {
+      [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")" -eq 0 ]
+    }
+    background_idle() {
+      evolution_idle && embedding_idle
+    }
+    terminal_background_failures() {
+      sqlite3 -cmd '.timeout 30000' "$db" "
+        SELECT
+          (SELECT count(*) FROM evolution_jobs WHERE status='dead_letter') +
+          (SELECT count(*) FROM embedding_retry_queue WHERE status='failed');
+      "
+    }
+    duplicate_live_skills() {
+      sqlite3 -cmd '.timeout 30000' "$db" "
+        SELECT count(*) FROM (
+          SELECT s.owner_agent_kind, s.owner_profile_id, j.value AS policy_id
+          FROM skills AS s, json_each(s.source_policies_json) AS j
+          WHERE s.status <> 'archived'
+          GROUP BY s.owner_agent_kind, s.owner_profile_id, j.value
+          HAVING count(*) > 1
+        );"
     }
 
+    # Long tool-heavy conversations may legitimately roll over into more than
+    # one MemOS episode while retaining one stable session id.  Wait only for
+    # every expected trial session to have durable, non-empty state here.  An
+    # orphan continuation episode can remain open until MemOS starts up again,
+    # so requiring every episode to be closed before reconciliation deadlocks.
+    schema_ready || { echo "OpenClaw MemOS DB is missing or lacks required pipeline tables: $db" >&2; exit 1; }
     deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-      database_gate && break
+      session_gate && break
       sleep 5
     done
-    database_gate || {
-      echo "OpenClaw MemOS did not settle: expected exactly $expected closed non-empty episodes and no pending/inflight embedding jobs" >&2
+    session_gate || {
+      echo "OpenClaw MemOS did not capture exactly $expected distinct non-empty trial sessions" >&2
       exit 1
     }
 
-    # A graceful bridge shutdown invokes MemOS core.shutdown(), which drains
-    # any remaining in-memory pipeline work before the SQLite snapshot.
+    # agent_end only performs durable L1 capture. Reflection, reward, L2/L3,
+    # and Skill work is owned by the persistent single-consumer queue. Let
+    # that worker become idle before asking its daemon to terminate; otherwise
+    # a fixed daemon shutdown grace period can expire while valid model calls
+    # are still draining.
+    # A resumed run can reuse every completed train trial, so no CLI hook may
+    # have started a runtime yet. In that case the reconciliation runtime below
+    # owns lease recovery and queue draining. If a runtime is live, let its
+    # existing worker finish before termination.
+    if [ -n "$(runtime_pids)" ]; then
+      while [ "$SECONDS" -lt "$deadline" ]; do
+        background_idle && break
+        # The daemon may enter its own idle shutdown after all CLI clients
+        # disconnect. If it exits while a long leased model job is running,
+        # fall through to the reconciliation runtime so lease recovery has an
+        # owner instead of waiting until the full lifecycle deadline.
+        [ -n "$(runtime_pids)" ] || break
+        sleep 5
+      done
+      if ! background_idle && [ -n "$(runtime_pids)" ]; then
+        echo "OpenClaw MemOS evolution queue did not become idle or embeddings remain pending within ${timeout}s" >&2
+        exit 1
+      fi
+    fi
+
+    # Stop any still-running per-trial runtime first. Then start one private,
+    # headless drain runtime. It owns lease recovery, retry backoff, and all
+    # downstream reflection/reward/embedding work before the SQLite snapshot.
+    # This uses the run-scoped MEMOS_HOME and never the user's global database.
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
     shutdown_deadline=$((SECONDS + ${MEMOS_DAEMON_TERM_TIMEOUT:-300}))
     while [ "$SECONDS" -lt "$shutdown_deadline" ]; do
@@ -189,11 +272,38 @@ commands:
       sleep 1
     done
     [ -z "$(runtime_pids)" ] || {
-      echo "OpenClaw MemOS bridges did not drain and stop gracefully; refusing to back up" >&2
+      echo "OpenClaw MemOS runtimes did not drain and stop gracefully; refusing to back up" >&2
       exit 1
     }
-    database_gate
+    bridge="${OPENCLAW_HOME:?run-scoped OPENCLAW_HOME is required}/extensions/memos-local-plugin/dist/adapters/openclaw/runtime-daemon.js"
+    test -f "$bridge" || { echo "OpenClaw MemOS reconciliation runtime is missing: $bridge" >&2; exit 1; }
+    mkdir -p "$plugin/logs"
+    timeout --signal=TERM --kill-after=10s "${MEMOS_RECONCILE_TIMEOUT:-$timeout}s" \
+      node "$bridge" --home="$plugin" --drain --no-viewer </dev/null \
+      >>"$plugin/logs/settle-reconcile.log" 2>&1
+
+    failures="$(terminal_background_failures)"
+    [ "$failures" -eq 0 ] || {
+      echo "OpenClaw MemOS has $failures terminal background failures" >&2
+      sqlite3 -cmd '.timeout 30000' "$db" "
+        SELECT 'evolution', id, job_type, attempts, max_attempts, COALESCE(last_error, '')
+          FROM evolution_jobs WHERE status='dead_letter';
+        SELECT 'embedding', id, target_kind, attempts, max_attempts, COALESCE(last_error, '')
+          FROM embedding_retry_queue WHERE status='failed';
+      " >&2
+      exit 1
+    }
+
+    settled_gate || {
+      echo "OpenClaw MemOS did not settle after reconciliation: expected=$expected distinct sessions, all episodes closed/non-empty, and no pending/inflight/failed embedding or evolution jobs" >&2
+      exit 1
+    }
     test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
+    duplicates="$(duplicate_live_skills)"
+    [ "$duplicates" -eq 0 ] || {
+      echo "OpenClaw MemOS produced $duplicates policy groups with duplicate non-archived skills" >&2
+      exit 1
+    }
     BASH
 
   backup: |
@@ -237,7 +347,10 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *bridge.cjs*|*bridge.mjs*|*bridge.cts*|*runtime-daemon.js*|*runtime-daemon.ts*|*runtime-stdio-proxy.js*|*runtime-stdio-proxy.ts*)
+            printf '%s\n' "$pid";;
+        esac
       done
     }
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
@@ -292,7 +405,10 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*|*bridge.cts*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *bridge.cjs*|*bridge.mjs*|*bridge.cts*|*runtime-daemon.js*|*runtime-daemon.ts*|*runtime-stdio-proxy.js*|*runtime-stdio-proxy.ts*)
+            printf '%s\n' "$pid";;
+        esac
       done
     }
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
