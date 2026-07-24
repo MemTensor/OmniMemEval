@@ -1,0 +1,11 @@
+kind: agent_profile
+name: openviking
+agent: hermes
+memory_plugin: openviking
+
+# Hermes reads OpenViking credentials from the run-scoped .env copied by the
+# lifecycle. The user's Hermes config remains responsible for provider choice.
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    home_links: []

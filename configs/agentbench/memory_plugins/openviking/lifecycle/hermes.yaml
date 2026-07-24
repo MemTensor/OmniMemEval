@@ -1,0 +1,202 @@
+kind: memory_lifecycle
+plugin: openviking
+agent: hermes
+
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/openviking-hermes-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/openviking-hermes-user-global-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
+
+feedback:
+  enabled: true
+  timeout: 300
+  structured_submit: false
+  backend: none
+  memos_structured_submit: false
+
+env:
+  HERMES_HOME: "@run_dir@/runtime/hermes"
+  OPENVIKING_SOURCE_HOME: "$HOME/.openviking"
+  OPENVIKING_HOME: "@run_dir@/runtime/openviking"
+  OPENVIKING_DATA_DIR: "@run_dir@/runtime/openviking/data"
+  OPENVIKING_ENDPOINT: "http://127.0.0.1:1933"
+  OPENVIKING_SOURCE_CONTAINER: "openviking"
+  OPENVIKING_EVAL_CONTAINER: "omnimemeval-openviking-@run_id@"
+  OPENVIKING_IMAGE: "ghcr.io/volcengine/openviking:latest"
+  OPENVIKING_READY_TIMEOUT: "120"
+
+commands:
+  validate: |
+    bash <<'BASH'
+    set -euo pipefail
+    command -v docker >/dev/null
+    docker inspect "${OPENVIKING_SOURCE_CONTAINER:-openviking}" >/dev/null
+    test -f "${OPENVIKING_SOURCE_HOME:?}/ov.conf"
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}/config.yaml" <<'PY'
+    import sys, yaml
+    config = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+    if (config.get("memory") or {}).get("provider") != "openviking":
+        raise SystemExit("Hermes memory.provider is not openviking")
+    PY
+    BASH
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}"
+    docker stop "${OPENVIKING_SOURCE_CONTAINER:-openviking}" >/dev/null 2>&1 || true
+    tar --exclude='./**/LOCK' --exclude='./.openviking.pid' \
+      -czf "@global_backup_file@" -C "$OPENVIKING_SOURCE_HOME" .
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent hermes --source "$source_home" --runtime "$HERMES_HOME" \
+      --run-dir "@run_dir@"
+    rm -rf "$OPENVIKING_HOME"
+    cp -a "$OPENVIKING_SOURCE_HOME" "$OPENVIKING_HOME"
+    "@python@" - "$OPENVIKING_HOME/ov.conf" "$HERMES_HOME/.env" <<'PY'
+    import json, os, sys, tempfile
+    config_path, env_path = sys.argv[1:]
+    config = json.load(open(config_path, encoding="utf-8"))
+    server = config.setdefault("server", {})
+    server["auth_mode"] = "trusted"
+    root_api_key = str(server.get("root_api_key") or "").strip()
+    if not root_api_key:
+        raise SystemExit("OpenViking server.root_api_key is required for isolated trusted mode")
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+
+    lines = open(env_path, encoding="utf-8").read().splitlines()
+    updated = []
+    replaced = False
+    for line in lines:
+        if line.split("=", 1)[0].strip() == "OPENVIKING_API_KEY":
+            updated.append(f"OPENVIKING_API_KEY={root_api_key}")
+            replaced = True
+        else:
+            updated.append(line)
+    if not replaced:
+        updated.append(f"OPENVIKING_API_KEY={root_api_key}")
+    fd, temporary_path = tempfile.mkstemp(prefix=".env.", dir=os.path.dirname(env_path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(updated) + "\n")
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, env_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+    PY
+    rm -rf "$OPENVIKING_DATA_DIR"
+    mkdir -p "$OPENVIKING_DATA_DIR"
+    BASH
+  clear: |
+    bash <<'BASH'
+    set -euo pipefail
+    docker rm -f "$OPENVIKING_EVAL_CONTAINER" >/dev/null 2>&1 || true
+    rm -rf "$OPENVIKING_DATA_DIR"
+    mkdir -p "$OPENVIKING_DATA_DIR"
+    docker run -d --name "$OPENVIKING_EVAL_CONTAINER" \
+      -p 127.0.0.1:1933:1933 \
+      -v "$OPENVIKING_HOME:/app/.openviking" \
+      "$OPENVIKING_IMAGE" --without-bot >/dev/null
+    deadline=$((SECONDS + ${OPENVIKING_READY_TIMEOUT:-120}))
+    until [ "$(docker inspect "$OPENVIKING_EVAL_CONTAINER" \
+      --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}')" = "healthy" ]; do
+      [ "$SECONDS" -lt "$deadline" ] || {
+        docker logs "$OPENVIKING_EVAL_CONTAINER" >&2 || true
+        exit 1
+      }
+      sleep 2
+    done
+    BASH
+  wait_settle: |
+    bash <<'BASH'
+    set -euo pipefail
+    "@python@" - "$HERMES_HOME/.env" "$OPENVIKING_ENDPOINT" <<'PY'
+    import json
+    import sys
+    import time
+    import urllib.request
+
+    env_path, endpoint = sys.argv[1:]
+    values = {}
+    for raw in open(env_path, encoding="utf-8", errors="ignore"):
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    api_key = values.get("OPENVIKING_API_KEY", "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    if values.get("OPENVIKING_ACCOUNT"):
+        headers["X-OpenViking-Account"] = values["OPENVIKING_ACCOUNT"]
+    if values.get("OPENVIKING_USER"):
+        headers["X-OpenViking-User"] = values["OPENVIKING_USER"]
+    deadline = time.monotonic() + 1800
+    stable_since = None
+    while time.monotonic() < deadline:
+        request = urllib.request.Request(
+            endpoint.rstrip("/") + "/api/v1/tasks?limit=200",
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.load(response)
+        tasks = payload.get("result") or []
+        failed = [
+            item for item in tasks
+            if str(item.get("status", "")).lower()
+            in {"failed", "error", "cancelled", "canceled"}
+        ]
+        if failed:
+            statuses = sorted(
+                str(item.get("status", "unknown")).lower() for item in failed
+            )
+            raise SystemExit("OpenViking task failure: " + ", ".join(statuses))
+        active = [
+            item for item in tasks
+            if str(item.get("status", "")).lower()
+            not in {"completed", "failed", "cancelled", "canceled"}
+        ]
+        if not active:
+            stable_since = stable_since or time.monotonic()
+            if time.monotonic() - stable_since >= 30:
+                print(f"OpenViking tasks idle: total={len(tasks)}")
+                raise SystemExit(0)
+        else:
+            stable_since = None
+        time.sleep(5)
+    raise SystemExit("OpenViking tasks did not settle within 1800s")
+    PY
+    BASH
+  backup: |
+    bash <<'BASH'
+    set -euo pipefail
+    docker stop "$OPENVIKING_EVAL_CONTAINER" >/dev/null
+    tar --exclude='./**/LOCK' --exclude='./.openviking.pid' \
+      -czf "@backup_file@" -C "$OPENVIKING_HOME" .
+    BASH
+  restore: |
+    bash <<'BASH'
+    set -euo pipefail
+    docker rm -f "$OPENVIKING_EVAL_CONTAINER" >/dev/null 2>&1 || true
+    find "$OPENVIKING_HOME" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    tar -xzf "@backup_file@" -C "$OPENVIKING_HOME"
+    docker run -d --name "$OPENVIKING_EVAL_CONTAINER" \
+      -p 127.0.0.1:1933:1933 \
+      -v "$OPENVIKING_HOME:/app/.openviking" \
+      "$OPENVIKING_IMAGE" --without-bot >/dev/null
+    deadline=$((SECONDS + ${OPENVIKING_READY_TIMEOUT:-120}))
+    until [ "$(docker inspect "$OPENVIKING_EVAL_CONTAINER" \
+      --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}')" = "healthy" ]; do
+      [ "$SECONDS" -lt "$deadline" ] || exit 1
+      sleep 2
+    done
+    BASH
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    docker rm -f "$OPENVIKING_EVAL_CONTAINER" >/dev/null 2>&1 || true
+    rm -rf "$OPENVIKING_HOME"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$HERMES_HOME" --run-dir "@run_dir@"
+    docker start "${OPENVIKING_SOURCE_CONTAINER:-openviking}" >/dev/null
+    BASH

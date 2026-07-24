@@ -1,0 +1,12 @@
+kind: agent_profile
+name: supermemory
+agent: hermes
+memory_plugin: supermemory
+
+# Product selection remains in the user's Hermes config. The profile only
+# exposes the lifecycle-prepared, run-scoped provider config to each trial.
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    home_links:
+      - supermemory.json

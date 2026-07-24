@@ -1,8 +1,9 @@
 kind: memory_lifecycle
 plugin: openviking
 agent: openclaw
-backup_dir: ~/memory_backup
+backup_dir: "@run_dir@/memory_backups"
 backup_file_template: "@backup_dir@/openviking-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/openviking-user-global-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
 feedback:
   enabled: true
@@ -11,16 +12,72 @@ feedback:
   backend: none
   memos_structured_submit: false
 env:
-  OPENVIKING_CONFIG: "$HOME/.openviking/ov.conf"
-  OPENVIKING_DATA_DIR: "/opt/openviking/data"
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
+  OPENVIKING_CONFIG: "@run_dir@/runtime/openviking/ov.conf"
+  OPENVIKING_DATA_DIR: "@run_dir@/runtime/openviking/data"
+  OMNIMEMEVAL_ORIGINAL_OPENVIKING_CONFIG: "$HOME/.openviking/ov.conf"
+  OMNIMEMEVAL_ORIGINAL_OPENVIKING_DATA_DIR: "/opt/openviking/data"
+  OMNIMEMEVAL_ORIGINAL_OPENVIKING_LOG: "$HOME/.openviking/openviking-server.log"
   OPENVIKING_SERVER_CMD: "/opt/openviking/venv/bin/openviking-server"
   OPENVIKING_URL: "http://127.0.0.1:1933"
-  OPENVIKING_LOG: "$HOME/.openviking/openviking-server.log"
+  OPENVIKING_LOG: "@run_dir@/runtime/openviking/openviking-server.log"
 
 commands:
   validate: |
     test -x "${OPENVIKING_SERVER_CMD:-/opt/openviking/venv/bin/openviking-server}"
-    test -f "${OPENVIKING_CONFIG:-$HOME/.openviking/ov.conf}"
+    test -f "${OMNIMEMEVAL_ORIGINAL_OPENVIKING_CONFIG:?}"
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/openclaw.json" <<'PY'
+    import json, sys
+    config = json.load(open(sys.argv[1], encoding="utf-8"))
+    plugins = config.get("plugins") or {}
+    if plugins.get("enabled") is False:
+        raise SystemExit("OpenClaw plugins are disabled")
+    if isinstance(plugins.get("allow"), list) and "openviking" not in plugins["allow"]:
+        raise SystemExit("OpenClaw plugins.allow does not include openviking")
+    if (plugins.get("slots") or {}).get("contextEngine") != "openviking":
+        raise SystemExit("OpenClaw contextEngine slot is not openviking")
+    entry = (plugins.get("entries") or {}).get("openviking")
+    if not isinstance(entry, dict) or entry.get("enabled") is False:
+        raise SystemExit("openviking is missing or disabled")
+    PY
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}"
+    source_config="${OMNIMEMEVAL_ORIGINAL_OPENVIKING_CONFIG:?}"
+    source_data="${OMNIMEMEVAL_ORIGINAL_OPENVIKING_DATA_DIR:?}"
+    source_pid="$(cat "$source_data/.openviking.pid" 2>/dev/null || true)"
+    [ -z "$source_pid" ] && source_pid="$(pgrep -f "openviking-server.*--config[ =]${source_config}" 2>/dev/null | head -1 || true)"
+    [ -n "$source_pid" ] && kill -TERM "$source_pid" 2>/dev/null || true
+    sleep 2
+    [ -n "$source_pid" ] && kill -KILL "$source_pid" 2>/dev/null || true
+    tmp_dir="$(mktemp -d)"
+    install -m 600 "$source_config" "$tmp_dir/ov.conf"
+    if [ -d "$source_data" ]; then
+      tar -czf "$tmp_dir/data.tar.gz" -C "$source_data" .
+    else
+      tar -czf "$tmp_dir/data.tar.gz" --files-from /dev/null
+    fi
+    tar -czf "@global_backup_file@" -C "$tmp_dir" ov.conf data.tar.gz
+    rm -rf "$tmp_dir"
+
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent openclaw --source "$source_home" --runtime "$OPENCLAW_HOME" \
+      --run-dir "@run_dir@" --link extensions/openviking --link npm
+    mkdir -p "$(dirname "$OPENVIKING_CONFIG")"
+    install -m 600 "$source_config" "$OPENVIKING_CONFIG"
+    "@python@" - "$OPENVIKING_CONFIG" "$OPENVIKING_DATA_DIR" <<'PY'
+    import json, sys
+    path, data_dir = sys.argv[1:]
+    config = json.load(open(path, encoding="utf-8"))
+    config.setdefault("storage", {})["workspace"] = data_dir
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    PY
+    BASH
   clear: |
     bash <<'BASH'
     set -euo pipefail
@@ -41,6 +98,7 @@ commands:
     setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy \
       "$OPENVIKING_SERVER_CMD" --config "$OPENVIKING_CONFIG" > "$OPENVIKING_LOG" 2>&1 < /dev/null &
     for _ in $(seq 1 60); do curl -sS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true' && break; sleep 1; done
+    curl -fsS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true'
     BASH
   wait_settle: |
     bash <<'BASH'
@@ -49,7 +107,7 @@ commands:
     deadline=$((SECONDS + 1800))
     stable_since=$SECONDS
     while [ "$SECONDS" -lt "$deadline" ]; do
-      active="$(python - "$OPENVIKING_URL" <<'PY' || echo error
+      active="$("@python@" - "$OPENVIKING_URL" <<'PY'
     import json
     import sys
     import urllib.request
@@ -58,6 +116,14 @@ commands:
     with urllib.request.urlopen(url, timeout=5) as resp:
         payload = json.load(resp)
     tasks = payload.get("result") or []
+    failed = [
+        item for item in tasks
+        if str(item.get("status", "")).lower()
+        in {"failed", "error", "cancelled", "canceled"}
+    ]
+    if failed:
+        statuses = sorted(str(item.get("status", "unknown")).lower() for item in failed)
+        raise SystemExit("OpenViking task failure: " + ", ".join(statuses))
     print(sum(1 for item in tasks if str(item.get("status", "")).lower() not in terminal))
     PY
     )"
@@ -68,6 +134,8 @@ commands:
       fi
       sleep 5
     done
+    echo "OpenViking tasks did not settle within 1800s" >&2
+    exit 1
     BASH
   backup: |
     bash <<'BASH'
@@ -92,7 +160,8 @@ commands:
     OPENVIKING_URL="${OPENVIKING_URL:-http://127.0.0.1:1933}"
     parent="$(dirname "$OPENVIKING_DATA_DIR")"
     base="$(basename "$OPENVIKING_DATA_DIR")"
-    tar -tzf "@backup_file@" | grep -q "^${base}/"
+    archive_entries="$(tar -tzf "@backup_file@")"
+    grep -q "^${base}/" <<< "$archive_entries"
     pid="$(cat "$OPENVIKING_DATA_DIR/.openviking.pid" 2>/dev/null || true)"
     [ -z "$pid" ] && pid="$(pgrep -f "openviking-server.*--config[ =]$OPENVIKING_CONFIG" 2>/dev/null | head -1 || true)"
     [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
@@ -106,4 +175,25 @@ commands:
     setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy \
       "$OPENVIKING_SERVER_CMD" --config "$OPENVIKING_CONFIG" > "$OPENVIKING_LOG" 2>&1 < /dev/null &
     for _ in $(seq 1 60); do curl -sS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true' && break; sleep 1; done
+    curl -fsS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true'
+    BASH
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    pid="$(pgrep -f "openviking-server.*--config[ =]${OPENVIKING_CONFIG}" 2>/dev/null | head -1 || true)"
+    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+    sleep 2
+    [ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null || true
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$OPENCLAW_HOME" --run-dir "@run_dir@"
+    rm -rf "@run_dir@/runtime/openviking"
+    mkdir -p "$(dirname "${OMNIMEMEVAL_ORIGINAL_OPENVIKING_LOG:?}")"
+    setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy \
+      "$OPENVIKING_SERVER_CMD" --config "${OMNIMEMEVAL_ORIGINAL_OPENVIKING_CONFIG:?}" \
+      > "${OMNIMEMEVAL_ORIGINAL_OPENVIKING_LOG:?}" 2>&1 < /dev/null &
+    for _ in $(seq 1 60); do
+      curl -sS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true' && break
+      sleep 1
+    done
+    curl -fsS --max-time 2 "$OPENVIKING_URL/health" | grep -q '"healthy":true'
     BASH

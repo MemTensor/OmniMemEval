@@ -1,8 +1,9 @@
 kind: memory_lifecycle
 plugin: hindsight
 agent: openclaw
-backup_dir: ~/memory_backup
+backup_dir: "@run_dir@/memory_backups"
 backup_file_template: "@backup_dir@/hindsight-openclaw-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/hindsight-user-global-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
 feedback:
   enabled: true
@@ -11,93 +12,97 @@ feedback:
   backend: none
   memos_structured_submit: false
 env:
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
   HINDSIGHT_API_URL: "http://127.0.0.1:9077"
   HINDSIGHT_INSTANCE_JSON: "/var/lib/hindsight-openclaw/.pg0/instances/hindsight/instance.json"
+  HINDSIGHT_PLUGIN_NAME: "hindsight-openclaw"
+  HINDSIGHT_EVAL_BANK_ID: "omnimemeval-@run_id@"
   PGHOST: "127.0.0.1"
   PGPORT: "5432"
   PGUSER: "hindsight"
   PGDATABASE: "hindsight"
 
 commands:
-  clear: |
-    python - "$HINDSIGHT_API_URL" <<'PY'
+  validate: |
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/openclaw.json" "$HINDSIGHT_PLUGIN_NAME" "$HINDSIGHT_API_URL" <<'PY'
     import json
     import sys
-    import urllib.parse
     import urllib.request
-
-    base = sys.argv[1].rstrip("/")
-
-    def req(method, path):
-        request = urllib.request.Request(base + path, method=method)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode()
-        return json.loads(body) if body else {}
-
-    banks = req("GET", "/v1/default/banks").get("banks", [])
-    deleted = []
-    for bank in banks:
-        bank_id = bank.get("bank_id")
-        if not bank_id:
-            continue
-        req("DELETE", "/v1/default/banks/" + urllib.parse.quote(bank_id, safe=""))
-        deleted.append(bank_id)
-    print(json.dumps({"deleted": deleted}, ensure_ascii=False))
+    config_path, plugin, base = sys.argv[1:]
+    config = json.load(open(config_path, encoding="utf-8"))
+    plugins = config.get("plugins") or {}
+    if plugins.get("enabled") is False:
+        raise SystemExit("OpenClaw plugins are disabled")
+    if isinstance(plugins.get("allow"), list) and plugin not in plugins["allow"]:
+        raise SystemExit(f"OpenClaw plugins.allow does not include {plugin}")
+    if (plugins.get("slots") or {}).get("memory") != plugin:
+        raise SystemExit(f"OpenClaw memory slot is not {plugin}")
+    entry = (plugins.get("entries") or {}).get(plugin)
+    if not isinstance(entry, dict) or entry.get("enabled") is False:
+        raise SystemExit(f"{plugin} is missing or disabled")
+    with urllib.request.urlopen(base.rstrip("/") + "/health", timeout=10) as response:
+        if response.status >= 400:
+            raise SystemExit(f"Hindsight health returned HTTP {response.status}")
     PY
-  wait_settle: |
-    python - "$HINDSIGHT_API_URL" <<'PY'
-    import json
-    import sys
-    import time
-    import urllib.parse
-    import urllib.request
-
-    base = sys.argv[1].rstrip("/")
-    busy_statuses = {"pending", "running", "queued", "processing", "in_progress"}
-    deadline = time.time() + 1800
-    time.sleep(30)
-    while time.time() < deadline:
-        with urllib.request.urlopen(base + "/v1/default/banks", timeout=30) as response:
-            banks = json.loads(response.read().decode()).get("banks", [])
-        busy = []
-        for bank in banks:
-            bank_id = bank.get("bank_id")
-            if not bank_id:
-                continue
-            path = "/v1/default/banks/" + urllib.parse.quote(bank_id, safe="") + "/operations?limit=100"
-            with urllib.request.urlopen(base + path, timeout=30) as response:
-                operations = json.loads(response.read().decode()).get("operations", [])
-            busy.extend(op for op in operations if str(op.get("status", "")).lower() in busy_statuses)
-        if not busy:
-            print(json.dumps({"busy": 0}))
-            raise SystemExit(0)
-        print(json.dumps({"busy": len(busy)}))
-        time.sleep(10)
-    print(json.dumps({"warning": "hindsight operations did not become idle before timeout"}))
-    PY
-  backup: |
+  prepare_global_snapshot: |
     bash <<'BASH'
     set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}"
+    instance="${HINDSIGHT_INSTANCE_JSON:?}"
     tmp_dir="$(mktemp -d)"
-    pg_dump -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" -U "${PGUSER:-hindsight}" -d "${PGDATABASE:-hindsight}" -Fc -f "$tmp_dir/hindsight.dump"
-    if [ -f "${HINDSIGHT_INSTANCE_JSON:-/var/lib/hindsight-openclaw/.pg0/instances/hindsight/instance.json}" ]; then
-      cp "${HINDSIGHT_INSTANCE_JSON:-/var/lib/hindsight-openclaw/.pg0/instances/hindsight/instance.json}" "$tmp_dir/instance.json"
-    fi
-    printf '%s\n' "@run_id@" > "$tmp_dir/run_id.txt"
-    printf '%s\n' "@domain@" > "$tmp_dir/domain.txt"
-    tar -czf "@backup_file@" -C "$tmp_dir" .
+    readarray -t pg < <("@python@" - "$instance" <<'PY'
+    import json, sys
+    from pathlib import Path
+    value = json.load(open(sys.argv[1], encoding="utf-8"))
+    installation = Path(value["installation_dir"])
+    binary_dir = installation / "bin"
+    if not binary_dir.is_dir():
+        binary_dir = installation / str(value["version"]) / "bin"
+    print(binary_dir)
+    print(value.get("port", 5432))
+    print(value.get("username", "hindsight"))
+    print(value.get("database", "hindsight"))
+    print(value.get("password", ""))
+    PY
+    )
+    PGPASSWORD="${pg[4]}" "${pg[0]}/pg_dump" -h 127.0.0.1 -p "${pg[1]}" \
+      -U "${pg[2]}" -d "${pg[3]}" -Fc -f "$tmp_dir/hindsight.dump"
+    tar -czf "@global_backup_file@" -C "$tmp_dir" hindsight.dump
     rm -rf "$tmp_dir"
+
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent openclaw --source "$source_home" --runtime "$OPENCLAW_HOME" \
+      --run-dir "@run_dir@" --link npm
+    "@python@" - "$OPENCLAW_HOME/openclaw.json" "$HINDSIGHT_PLUGIN_NAME" "$HINDSIGHT_EVAL_BANK_ID" <<'PY'
+    import json, sys
+    path, plugin, bank = sys.argv[1:]
+    config = json.load(open(path, encoding="utf-8"))
+    entry = ((config.get("plugins") or {}).get("entries") or {}).get(plugin)
+    if not isinstance(entry, dict):
+        raise SystemExit(f"{plugin} is not configured")
+    plugin_config = entry.setdefault("config", {})
+    plugin_config["dynamicBankId"] = False
+    plugin_config["bankId"] = bank
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    PY
     BASH
+  clear: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hindsight_ctl.py" clear
+  wait_settle: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hindsight_ctl.py" wait \
+      --timeout 1800 --idle-seconds 10
+  backup: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hindsight_ctl.py" backup "@backup_file@"
   restore: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hindsight_ctl.py" restore "@backup_file@"
+  cleanup: |
     bash <<'BASH'
     set -euo pipefail
-    tmp_dir="$(mktemp -d)"
-    tar -xzf "@backup_file@" -C "$tmp_dir"
-    test -f "$tmp_dir/hindsight.dump"
-    psql -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" -U "${PGUSER:-hindsight}" -d "${PGDATABASE:-hindsight}" \
-      -v ON_ERROR_STOP=1 \
-      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();" >/dev/null
-    pg_restore -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" -U "${PGUSER:-hindsight}" -d "${PGDATABASE:-hindsight}" \
-      --clean --if-exists --no-owner --exit-on-error "$tmp_dir/hindsight.dump"
-    rm -rf "$tmp_dir"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hindsight_ctl.py" delete
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$OPENCLAW_HOME" --run-dir "@run_dir@"
     BASH

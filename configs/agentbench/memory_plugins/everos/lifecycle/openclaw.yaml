@@ -1,8 +1,9 @@
 kind: memory_lifecycle
 plugin: everos
 agent: openclaw
-backup_dir: ~/memory_backup
+backup_dir: "@run_dir@/memory_backups"
 backup_file_template: "@backup_dir@/everos-openclaw-plugin-memory-@domain@-@run_date@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/everos-user-global-@run_date@-@run_id@.tar.gz"
 settle_seconds: 1800
 feedback:
   enabled: true
@@ -11,7 +12,10 @@ feedback:
   backend: none
   memos_structured_submit: false
 env:
-  EVEROS_ROOT: "$HOME/.everos"
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
+  EVEROS_ROOT: "@run_dir@/runtime/everos"
+  OMNIMEMEVAL_ORIGINAL_EVEROS_ROOT: "$HOME/.everos"
   EVEROS_HOST: "127.0.0.1"
   EVEROS_PORT: "8000"
   EVERMEMOS_COMPAT_HOST: "127.0.0.1"
@@ -26,6 +30,33 @@ commands:
     command -v everos >/dev/null
     command -v uvicorn >/dev/null
     test -d "${EVERMEMOS_COMPAT_DIR:-/opt/everos-compat}"
+    test -f "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/openclaw.json"
+    test -d "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/plugins/evermemos-openclaw-plugin"
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}"
+    source_memory="${OMNIMEMEVAL_ORIGINAL_EVEROS_ROOT:?}"
+    snapshot="@global_backup_file@"
+    mkdir -p "$(dirname "$snapshot")"
+    if [ -d "$source_memory" ]; then
+      tar -czf "$snapshot" -C "$(dirname "$source_memory")" "$(basename "$source_memory")"
+    else
+      tmp_dir="$(mktemp -d)"
+      printf '%s\n' 'EverOS global state did not exist before evaluation.' > "$tmp_dir/EMPTY"
+      tar -czf "$snapshot" -C "$tmp_dir" EMPTY
+      rm -rf "$tmp_dir"
+    fi
+    mkdir -p "$EVEROS_ROOT"
+    install -m 600 "$source_memory/everos.toml" "$EVEROS_ROOT/everos.toml"
+    if [ -f "$source_memory/ome.toml" ]; then
+      install -m 600 "$source_memory/ome.toml" "$EVEROS_ROOT/ome.toml"
+    fi
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent openclaw --source "$source_home" --runtime "$OPENCLAW_HOME" \
+      --run-dir "@run_dir@" --link plugins/evermemos-openclaw-plugin --link npm
+    BASH
   clear: |
     bash <<'BASH'
     set -euo pipefail
@@ -36,7 +67,10 @@ commands:
     EVERMEMOS_COMPAT_PORT="${EVERMEMOS_COMPAT_PORT:-1995}"
     EVERMEMOS_COMPAT_DIR="${EVERMEMOS_COMPAT_DIR:-/opt/everos-compat}"
     mkdir -p "$EVEROS_ROOT/logs"
-    pids="$(lsof -ti :"$EVERMEMOS_COMPAT_PORT" 2>/dev/null || true) $(pgrep -f 'uvicorn evermemos_v0_compat:app' 2>/dev/null || true) $(lsof -ti :"$EVEROS_PORT" 2>/dev/null || true) $(pgrep -f 'everos server start' 2>/dev/null || true)"
+    # Match only the processes that own the configured listening sockets.
+    # `pgrep -f` is unsafe here because the lifecycle command text itself
+    # contains the server command and can therefore terminate its own shell.
+    pids="$(lsof -ti :"$EVERMEMOS_COMPAT_PORT" 2>/dev/null || true) $(lsof -ti :"$EVEROS_PORT" 2>/dev/null || true)"
     for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; kill -CONT "$pid" 2>/dev/null || true; done
     sleep 2
     for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
@@ -44,11 +78,13 @@ commands:
     setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       everos server start --root "$EVEROS_ROOT" --host "$EVEROS_HOST" --port "$EVEROS_PORT" \
       > "$EVEROS_ROOT/logs/everos-server.log" 2>&1 < /dev/null &
-    for _ in $(seq 1 60); do curl -sS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 60); do curl -fsS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null
     (cd "$EVERMEMOS_COMPAT_DIR" && setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       uvicorn evermemos_v0_compat:app --host "$EVERMEMOS_COMPAT_HOST" --port "$EVERMEMOS_COMPAT_PORT" \
       > "$EVEROS_ROOT/logs/evermemos-v0-compat.log" 2>&1 < /dev/null &)
-    for _ in $(seq 1 60); do curl -sS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 60); do curl -fsS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null
     BASH
   backup: |
     bash <<'BASH'
@@ -56,11 +92,11 @@ commands:
     EVEROS_ROOT="${EVEROS_ROOT:-$HOME/.everos}"
     EVEROS_HOST="${EVEROS_HOST:-127.0.0.1}"
     EVEROS_PORT="${EVEROS_PORT:-8000}"
-    curl -sS --max-time 180 -X POST "http://$EVEROS_HOST:$EVEROS_PORT/api/v1/memory/flush" \
+    curl -fsS --max-time 180 -X POST "http://$EVEROS_HOST:$EVEROS_PORT/api/v1/memory/flush" \
       -H 'Content-Type: application/json' \
-      -d "{\"session_id\":\"${EVEROS_SESSION_ID:-evermemos-group}\",\"app_id\":\"${EVEROS_APP_ID:-openclaw}\",\"project_id\":\"${EVEROS_PROJECT_ID:-default}\"}" >/dev/null || true
-    everos cascade --root "$EVEROS_ROOT" sync || true
-    pids="$(pgrep -f 'uvicorn evermemos_v0_compat:app' 2>/dev/null || true) $(pgrep -f 'everos server start' 2>/dev/null || true)"
+      -d "{\"session_id\":\"${EVEROS_SESSION_ID:-evermemos-group}\",\"app_id\":\"${EVEROS_APP_ID:-openclaw}\",\"project_id\":\"${EVEROS_PROJECT_ID:-default}\"}" >/dev/null
+    everos cascade --root "$EVEROS_ROOT" sync
+    pids="$(lsof -ti :"${EVERMEMOS_COMPAT_PORT:-1995}" 2>/dev/null || true) $(lsof -ti :"${EVEROS_PORT:-8000}" 2>/dev/null || true)"
     for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; kill -CONT "$pid" 2>/dev/null || true; done
     sleep 2
     tar -czf "@backup_file@" -C "$EVEROS_ROOT" --ignore-failed-read openclaw .index
@@ -75,7 +111,7 @@ commands:
     EVERMEMOS_COMPAT_PORT="${EVERMEMOS_COMPAT_PORT:-1995}"
     EVERMEMOS_COMPAT_DIR="${EVERMEMOS_COMPAT_DIR:-/opt/everos-compat}"
     mkdir -p "$EVEROS_ROOT/logs"
-    pids="$(lsof -ti :"$EVERMEMOS_COMPAT_PORT" 2>/dev/null || true) $(pgrep -f 'uvicorn evermemos_v0_compat:app' 2>/dev/null || true) $(lsof -ti :"$EVEROS_PORT" 2>/dev/null || true) $(pgrep -f 'everos server start' 2>/dev/null || true)"
+    pids="$(lsof -ti :"$EVERMEMOS_COMPAT_PORT" 2>/dev/null || true) $(lsof -ti :"$EVEROS_PORT" 2>/dev/null || true)"
     for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; kill -CONT "$pid" 2>/dev/null || true; done
     sleep 2
     rm -rf "$EVEROS_ROOT/openclaw" "$EVEROS_ROOT/.index"
@@ -83,9 +119,43 @@ commands:
     setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       everos server start --root "$EVEROS_ROOT" --host "$EVEROS_HOST" --port "$EVEROS_PORT" \
       > "$EVEROS_ROOT/logs/everos-server.log" 2>&1 < /dev/null &
-    for _ in $(seq 1 60); do curl -sS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 60); do curl -fsS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS --max-time 2 "http://$EVEROS_HOST:$EVEROS_PORT/health" >/dev/null
     (cd "$EVERMEMOS_COMPAT_DIR" && setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
       uvicorn evermemos_v0_compat:app --host "$EVERMEMOS_COMPAT_HOST" --port "$EVERMEMOS_COMPAT_PORT" \
       > "$EVEROS_ROOT/logs/evermemos-v0-compat.log" 2>&1 < /dev/null &)
-    for _ in $(seq 1 60); do curl -sS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    for _ in $(seq 1 60); do curl -fsS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
+    curl -fsS --max-time 2 "http://$EVERMEMOS_COMPAT_HOST:$EVERMEMOS_COMPAT_PORT/health" >/dev/null
+    BASH
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    pids="$(lsof -ti :"${EVERMEMOS_COMPAT_PORT:-1995}" 2>/dev/null || true) $(lsof -ti :"${EVEROS_PORT:-8000}" 2>/dev/null || true)"
+    for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
+    sleep 2
+    for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$OPENCLAW_HOME" --run-dir "@run_dir@"
+    rm -rf "${EVEROS_ROOT:?}"
+    original_root="${OMNIMEMEVAL_ORIGINAL_EVEROS_ROOT:?}"
+    mkdir -p "$original_root/logs"
+    setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
+      everos server start --root "$original_root" --host "${EVEROS_HOST:-127.0.0.1}" --port "${EVEROS_PORT:-8000}" \
+      > "$original_root/logs/everos-server.log" 2>&1 < /dev/null &
+    for _ in $(seq 1 60); do
+      curl -fsS --max-time 2 "http://${EVEROS_HOST:-127.0.0.1}:${EVEROS_PORT:-8000}/health" >/dev/null 2>&1 && break
+      sleep 1
+    done
+    curl -fsS --max-time 2 "http://${EVEROS_HOST:-127.0.0.1}:${EVEROS_PORT:-8000}/health" >/dev/null
+    (
+      cd "${EVERMEMOS_COMPAT_DIR:-/opt/everos-compat}"
+      setsid env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
+        uvicorn evermemos_v0_compat:app --host "${EVERMEMOS_COMPAT_HOST:-127.0.0.1}" --port "${EVERMEMOS_COMPAT_PORT:-1995}" \
+        > "$original_root/logs/evermemos-v0-compat.log" 2>&1 < /dev/null &
+    )
+    for _ in $(seq 1 60); do
+      curl -fsS --max-time 2 "http://${EVERMEMOS_COMPAT_HOST:-127.0.0.1}:${EVERMEMOS_COMPAT_PORT:-1995}/health" >/dev/null 2>&1 && break
+      sleep 1
+    done
+    curl -fsS --max-time 2 "http://${EVERMEMOS_COMPAT_HOST:-127.0.0.1}:${EVERMEMOS_COMPAT_PORT:-1995}/health" >/dev/null
     BASH

@@ -31,6 +31,107 @@ def _args(agent, memory_plugin=None, profile=None, profile_config=None):
     )
 
 
+def test_every_declared_memory_profile_and_lifecycle_compose(tmp_path):
+    profiles_root = ROOT / "configs" / "agentbench" / "profiles"
+    lifecycles_root = ROOT / "configs" / "agentbench" / "memory_plugins"
+
+    declared_profiles = {}
+    for path in sorted(profiles_root.glob("*/*.yaml")):
+        profile = load_yaml(path)
+        plugin = profile.get("memory_plugin")
+        if not plugin or plugin == "none":
+            continue
+        key = (str(profile["agent"]), str(plugin))
+        assert key not in declared_profiles, f"duplicate memory profile for {key}: {path}"
+        declared_profiles[key] = path
+
+    declared_lifecycles = {}
+    for path in sorted(lifecycles_root.glob("*/lifecycle/*.yaml")):
+        lifecycle = load_yaml(path)
+        key = (str(lifecycle["agent"]), str(lifecycle["plugin"]))
+        assert key not in declared_lifecycles, f"duplicate memory lifecycle for {key}: {path}"
+        declared_lifecycles[key] = path
+        CommandMemoryLifecycle(
+            config=lifecycle,
+            project_dir=ROOT,
+            run_dir=tmp_path / f"{key[0]}-{key[1]}",
+            run_id="configuration-matrix",
+            version="unit-test",
+        )
+
+    assert declared_profiles.keys() == declared_lifecycles.keys()
+    for (agent, plugin), lifecycle_path in declared_lifecycles.items():
+        assert lifecycle_path == _default_memory_plugin_config(agent, plugin)
+        profile_path, profile, profile_name = _load_profile_config(
+            _args(agent, memory_plugin=plugin),
+            load_yaml(lifecycle_path),
+        )
+        assert profile_path == declared_profiles[(agent, plugin)]
+        assert profile_name == plugin
+        assert profile["agent"] == agent
+        assert profile["memory_plugin"] == plugin
+
+
+def test_non_memos_profiles_leave_product_selection_to_user_configuration():
+    for path in sorted((ROOT / "configs" / "agentbench" / "profiles").glob("*/*.yaml")):
+        profile = load_yaml(path)
+        if profile.get("memory_plugin") in {None, "none", "memos"}:
+            continue
+        patch = profile.get("agent_patch") or {}
+        assert "memory" not in patch, path
+        assert "openclaw_config_patch" not in patch, path
+        assert "hermes_config_patch" not in patch, path
+
+
+def test_product_lifecycles_fail_closed_around_settle_and_restore():
+    everos = load_yaml(_default_memory_plugin_config("openclaw", "everos"))
+    everos_backup = everos["commands"]["backup"]
+    assert "memory/flush" in everos_backup
+    assert "everos cascade" in everos_backup
+    assert "everos cascade --root \"$EVEROS_ROOT\" sync || true" not in everos_backup
+
+    supermemory = load_yaml(
+        _default_memory_plugin_config("openclaw", "supermemory")
+    )
+    supermemory_restore = supermemory["commands"]["restore"]
+    assert supermemory_restore.index(" import ") < supermemory_restore.index(
+        " wait 1800"
+    )
+    assert "reusable expertise" in supermemory["env"]["SUPERMEMORY_ENTITY_CONTEXT"]
+
+    openviking = load_yaml(
+        _default_memory_plugin_config("openclaw", "openviking")
+    )
+    assert "did not settle within 1800s" in openviking["commands"]["wait_settle"]
+    assert "OpenViking task failure" in openviking["commands"]["wait_settle"]
+    for stage in ("clear", "restore", "cleanup"):
+        assert "curl -fsS" in openviking["commands"][stage]
+
+    hermes_openviking = load_yaml(
+        _default_memory_plugin_config("hermes", "openviking")
+    )
+    assert "/api/v1/tasks?limit=200" in hermes_openviking["commands"]["wait_settle"]
+    assert "OpenViking task failure" in hermes_openviking["commands"]["wait_settle"]
+    assert 'server["auth_mode"] = "trusted"' in hermes_openviking["commands"][
+        "prepare_global_snapshot"
+    ]
+    assert "OPENVIKING_API_KEY={root_api_key}" in hermes_openviking["commands"][
+        "prepare_global_snapshot"
+    ]
+    assert 'headers["X-OpenViking-Account"]' in hermes_openviking["commands"][
+        "wait_settle"
+    ]
+    backup = hermes_openviking["commands"]["backup"]
+    assert backup.index("docker stop") < backup.index("tar ")
+
+    hindsight = load_yaml(
+        _default_memory_plugin_config("openclaw", "hindsight")
+    )
+    prepare = hindsight["commands"]["prepare_global_snapshot"]
+    assert 'plugin_config["dynamicBankId"] = False' in prepare
+    assert 'plugin_config["bankId"] = bank' in prepare
+
+
 @pytest.mark.parametrize("agent", ["openclaw", "hermes"])
 def test_memos_resolves_runtime_specific_profile_and_lifecycle(agent):
     lifecycle_path = _default_memory_plugin_config(agent, "memos")

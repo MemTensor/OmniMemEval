@@ -1,9 +1,10 @@
 kind: memory_lifecycle
 plugin: supermemory
 agent: openclaw
-backup_dir: ~/memory_backup
+backup_dir: "@run_dir@/memory_backups"
 backup_file_template: "@backup_dir@/supermemory-openclaw-@domain@-@run_date@-@run_id@.tar.gz"
-settle_seconds: 1800
+global_backup_file_template: "@backup_dir@/supermemory-user-config-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
 feedback:
   enabled: true
   timeout: 300
@@ -11,22 +12,45 @@ feedback:
   backend: none
   memos_structured_submit: false
 env:
-  OPENCLAW_CONFIG: "$HOME/.openclaw/openclaw.json"
-  OPENCLAW_HOME: "$HOME/.openclaw"
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
+  OPENCLAW_CONFIG: "@run_dir@/runtime/openclaw/openclaw.json"
   SUPERMEMORY_PLUGIN_NAME: "openclaw-supermemory"
+  SUPERMEMORY_CONTAINER_TAG: "omnimemeval_@run_id@"
   SUPERMEMORY_BATCH_SIZE: "50"
-  NODE_PATH: "$HOME/.openclaw/npm/node_modules"
+  SUPERMEMORY_ENTITY_CONTEXT: "This OmniMemEval run stores reusable expertise for the @domain@ domain. Extract concrete problem-solving strategies, corrections, verification habits, and lessons that can help solve future tasks. Do not focus on personal preferences."
+  NODE_PATH: "@run_dir@/runtime/openclaw/npm/node_modules"
 
 commands:
   validate: |
-    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" configure
-    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" count
+    command -v node >/dev/null
+    test -f "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/openclaw.json"
+    test -d "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/npm/node_modules"
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent openclaw --source "$source_home" --runtime "$OPENCLAW_HOME" \
+      --run-dir "@run_dir@" --link npm
+    tmp_dir="$(mktemp -d)"
+    install -m 600 "$OPENCLAW_CONFIG" "$tmp_dir/openclaw.json"
+    printf '%s\n' \
+      'The evaluation uses a run-scoped Supermemory container; global cloud memory is not modified.' \
+      > "$tmp_dir/README"
+    tar -czf "@global_backup_file@" -C "$tmp_dir" openclaw.json README
+    rm -rf "$tmp_dir"
+    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" validate
+    BASH
   set_mode_train: |
     node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" mode train
   set_mode_test: |
     node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" mode test
   clear: |
     node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" wipe
+  wait_settle: |
+    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" wait 1800
   backup: |
     bash <<'BASH'
     set -euo pipefail
@@ -34,7 +58,7 @@ commands:
     jsonl="$tmp_dir/supermemory-documents.jsonl"
     manifest="$tmp_dir/manifest.json"
     node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" export "$jsonl"
-    python - "$manifest" "$jsonl" <<'PY'
+    "@python@" - "$manifest" "$jsonl" <<'PY'
     import json
     import sys
     from datetime import datetime, timezone
@@ -60,5 +84,13 @@ commands:
     tar -xzf "@backup_file@" -C "$tmp_dir"
     test -f "$tmp_dir/supermemory-documents.jsonl"
     node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" import "$tmp_dir/supermemory-documents.jsonl" replace
+    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" wait 1800
     rm -rf "$tmp_dir"
+    BASH
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    node "@project_dir@/scripts/agentbench/plugin_lifecycle/supermemory_node.js" wipe
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$OPENCLAW_HOME" --run-dir "@run_dir@"
     BASH

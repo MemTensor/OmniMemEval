@@ -92,27 +92,27 @@ async function wipe(sm, containerTag) {
 }
 
 async function main() {
-  if (action === "configure") {
-    const cfg = readConfig();
-    cfg.plugins ||= {};
-    cfg.plugins.enabled = true;
-    cfg.plugins.allow = Array.isArray(cfg.plugins.allow) ? cfg.plugins.allow : [];
-    if (!cfg.plugins.allow.includes(pluginName)) cfg.plugins.allow.push(pluginName);
-    cfg.plugins.slots ||= {};
-    cfg.plugins.slots.memory = pluginName;
-    cfg.plugins.entries ||= {};
-    cfg.plugins.entries[pluginName] ||= {};
-    cfg.plugins.entries[pluginName].enabled = true;
-    cfg.plugins.entries[pluginName].hooks ||= {};
-    cfg.plugins.entries[pluginName].hooks.allowConversationAccess = true;
-    cfg.plugins.entries[pluginName].config ||= {};
-    if (process.env.SUPERMEMORY_CONTAINER_TAG) {
-      cfg.plugins.entries[pluginName].config.containerTag = process.env.SUPERMEMORY_CONTAINER_TAG;
+  if (action === "validate") {
+    const settings = resolveSettings();
+    const plugins = settings.cfg.plugins || {};
+    const entry = ((plugins.entries || {})[pluginName]) || {};
+    const allow = plugins.allow;
+    const selected = (plugins.slots || {}).memory;
+    if (plugins.enabled === false) throw new Error("OpenClaw plugins are disabled");
+    if (Array.isArray(allow) && !allow.includes(pluginName)) {
+      throw new Error(`OpenClaw plugins.allow does not include ${pluginName}`);
     }
-    cfg.plugins.entries[pluginName].config.autoRecall = true;
-    cfg.plugins.entries[pluginName].config.autoCapture = true;
-    writeConfig(cfg);
-    console.log(JSON.stringify({ configured: pluginName }));
+    if (selected !== pluginName) {
+      throw new Error(`OpenClaw memory slot is ${JSON.stringify(selected)}, expected ${pluginName}`);
+    }
+    if (!entry || entry.enabled === false) {
+      throw new Error(`${pluginName} is missing or disabled`);
+    }
+    console.log(JSON.stringify({
+      validated: pluginName,
+      containerTag: settings.containerTag,
+      baseURL: settings.baseURL,
+    }));
     return;
   }
 
@@ -121,13 +121,25 @@ async function main() {
     if (!["train", "test"].includes(mode)) throw new Error("mode requires train or test");
     const cfg = readConfig();
     const entry = cfg.plugins?.entries?.[pluginName];
-    if (!entry) throw new Error(`${pluginName} is not configured`);
-    entry.enabled = true;
+    if (!entry || entry.enabled === false) throw new Error(`${pluginName} is missing or disabled`);
     entry.config ||= {};
+    const runContainerTag = process.env.SUPERMEMORY_CONTAINER_TAG;
+    if (!runContainerTag || !runContainerTag.startsWith("omnimemeval_")) {
+      throw new Error(`refusing non-run-scoped Supermemory container: ${JSON.stringify(runContainerTag)}`);
+    }
+    entry.config.containerTag = runContainerTag;
+    entry.config.entityContext = process.env.SUPERMEMORY_ENTITY_CONTEXT
+      || entry.config.entityContext
+      || "Extract concrete, reusable problem-solving strategies and lessons for future tasks.";
     entry.config.autoRecall = true;
     entry.config.autoCapture = mode === "train" || truthy(process.env.SUPERMEMORY_TEST_AUTOCAPTURE);
     writeConfig(cfg);
-    console.log(JSON.stringify({ mode, autoCapture: entry.config.autoCapture }));
+    console.log(JSON.stringify({
+      mode,
+      autoCapture: entry.config.autoCapture,
+      containerTag: entry.config.containerTag,
+      entityContextConfigured: Boolean(entry.config.entityContext),
+    }));
     return;
   }
 
@@ -137,6 +149,35 @@ async function main() {
     const docs = await listAll(sm, containerTag, false);
     console.log(JSON.stringify({ containerTag, total: docs.length }));
     return;
+  }
+
+  if (action === "wait") {
+    const timeoutSeconds = Number(arg1 || process.env.SUPERMEMORY_SETTLE_TIMEOUT || 1800);
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    const processing = new Set(["unknown", "queued", "extracting", "chunking", "embedding", "indexing", "processing"]);
+    const failedStatuses = new Set(["failed", "error", "cancelled", "canceled"]);
+    let lastStatusCounts = {};
+    while (Date.now() < deadline) {
+      const docs = await listAll(sm, containerTag, false);
+      lastStatusCounts = docs.reduce((counts, doc) => {
+        const status = String(doc.status || "unknown").toLowerCase();
+        counts[status] = (counts[status] || 0) + 1;
+        return counts;
+      }, {});
+      const failed = docs.filter((doc) => failedStatuses.has(String(doc.status || "unknown").toLowerCase()));
+      if (failed.length > 0) {
+        throw new Error(`Supermemory document ingestion failed: ${JSON.stringify(lastStatusCounts)}`);
+      }
+      const active = docs.filter((doc) => processing.has(String(doc.status || "unknown").toLowerCase()));
+      if (active.length === 0) {
+        console.log(JSON.stringify({ containerTag, idle: true, total: docs.length }));
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+    throw new Error(
+      `Supermemory did not become idle within ${timeoutSeconds}s: ${JSON.stringify(lastStatusCounts)}`,
+    );
   }
 
   if (action === "wipe") {

@@ -1,0 +1,12 @@
+kind: agent_profile
+name: hindsight
+agent: hermes
+memory_plugin: hindsight
+
+# Product selection remains in the user's Hermes config. The lifecycle copies
+# this provider config and assigns a run-specific Hindsight bank.
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    home_links:
+      - hindsight/config.json

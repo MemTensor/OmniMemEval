@@ -1,0 +1,78 @@
+kind: memory_lifecycle
+plugin: supermemory
+agent: hermes
+
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/supermemory-hermes-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/supermemory-hermes-user-config-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
+
+feedback:
+  enabled: true
+  timeout: 300
+  structured_submit: false
+  backend: none
+  memos_structured_submit: false
+
+env:
+  HERMES_HOME: "@run_dir@/runtime/hermes"
+  SUPERMEMORY_CONTAINER_TAG: "omnimemeval_@run_id@"
+  MEMORY_FINALIZE_TIMEOUT: "1800"
+
+commands:
+  validate: |
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}" <<'PY'
+    import json, sys
+    from pathlib import Path
+    import yaml
+    home = Path(sys.argv[1])
+    config = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8")) or {}
+    if (config.get("memory") or {}).get("provider") != "supermemory":
+        raise SystemExit("Hermes memory.provider is not supermemory")
+    value = json.loads((home / "supermemory.json").read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise SystemExit("Hermes supermemory.json must be an object")
+    PY
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent hermes --source "$source_home" --runtime "$HERMES_HOME" \
+      --run-dir "@run_dir@" --copy supermemory.json
+    "@python@" - "$HERMES_HOME/supermemory.json" "$SUPERMEMORY_CONTAINER_TAG" <<'PY'
+    import json, sys
+    path, tag = sys.argv[1:]
+    config = json.load(open(path, encoding="utf-8"))
+    config["container_tag"] = tag
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+        handle.write("\n")
+    PY
+    tmp_dir="$(mktemp -d)"
+    install -m 600 "$source_home/config.yaml" "$tmp_dir/config.yaml"
+    install -m 600 "$source_home/supermemory.json" "$tmp_dir/supermemory.json"
+    printf '%s\n' \
+      'Evaluation state uses a run-scoped container; user cloud memory is not modified.' \
+      > "$tmp_dir/README"
+    tar -czf "@global_backup_file@" -C "$tmp_dir" config.yaml supermemory.json README
+    rm -rf "$tmp_dir"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" status
+    BASH
+  clear: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" clear
+  wait_settle: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" wait \
+      --timeout "${MEMORY_FINALIZE_TIMEOUT:-1800}"
+  backup: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" backup "@backup_file@"
+  restore: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" restore "@backup_file@"
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_supermemory_ctl.py" clear
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$HERMES_HOME" --run-dir "@run_dir@"
+    BASH
