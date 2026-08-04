@@ -45,7 +45,7 @@ extract_env_arg() {
                     echo "Error: --env requires a file path"
                     exit 1
                 fi
-                OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+                OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$2")" && pwd -W 2>/dev/null || pwd)/$(basename "$2")"
                 if [[ ! -f "$OMNIMEMEVAL_ENV_FILE" ]]; then
                     echo "Error: env file not found: $OMNIMEMEVAL_ENV_FILE"
                     exit 1
@@ -310,7 +310,7 @@ try_replay() {
             echo "       Use: ./scripts/$SCRIPT_NAME --env <file> --replay $replay_dir"
             exit 1
         fi
-        OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$candidate_env")" && pwd)/$(basename "$candidate_env")"
+        OMNIMEMEVAL_ENV_FILE="$(cd "$(dirname "$candidate_env")" && pwd -W 2>/dev/null || pwd)/$(basename "$candidate_env")"
         export OMNIMEMEVAL_ENV_FILE
         echo "Using inferred env file: $OMNIMEMEVAL_ENV_FILE"
     fi
