@@ -131,6 +131,18 @@ def test_product_lifecycles_fail_closed_around_settle_and_restore():
     assert 'plugin_config["dynamicBankId"] = False' in prepare
     assert 'plugin_config["bankId"] = bank' in prepare
 
+    openclaw_mem0 = load_yaml(
+        _default_memory_plugin_config("openclaw", "mem0")
+    )
+    assert "mode test" in openclaw_mem0["commands"]["set_mode_test"]
+    assert "mem0_openclaw_ctl.py" in openclaw_mem0["commands"]["backup"]
+
+    hermes_mem0 = load_yaml(
+        _default_memory_plugin_config("hermes", "mem0")
+    )
+    assert "HERMES_MEM0_QDRANT_PATH" in hermes_mem0["env"]
+    assert "hermes_mem0_ctl.py" in hermes_mem0["commands"]["restore"]
+
 
 @pytest.mark.parametrize("agent", ["openclaw", "hermes"])
 def test_memos_resolves_runtime_specific_profile_and_lifecycle(agent):

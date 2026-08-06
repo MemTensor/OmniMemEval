@@ -8,6 +8,7 @@ Results are recorded in [eval_res.md](./eval_res.md).
 
 Product-specific configuration and execution guides:
 
+- [Mem0](./products/mem0.md)
 - [EverOS](./products/everos.md)
 - [Hindsight](./products/hindsight.md)
 - [OpenViking](./products/openviking.md)

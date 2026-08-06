@@ -1,0 +1,99 @@
+kind: memory_lifecycle
+plugin: mem0
+agent: openclaw
+
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/mem0-openclaw-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/mem0-openclaw-user-config-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
+
+feedback:
+  enabled: true
+  timeout: 300
+  structured_submit: false
+  backend: none
+  memos_structured_submit: false
+
+env:
+  OPENCLAW_HOME: "@run_dir@/runtime/openclaw"
+  OMNIMEMEVAL_OPENCLAW_HOME_SOURCE: "@run_dir@/runtime/openclaw"
+  OPENCLAW_CONFIG: "@run_dir@/runtime/openclaw/openclaw.json"
+  MEM0_PLUGIN_NAME: "openclaw-mem0"
+  MEM0_EVAL_USER_ID: "omnimemeval:@run_id@"
+  MEM0_MODE_STATE: "@run_dir@/runtime/mem0-openclaw-mode.json"
+  MEM0_SETTLE_TIMEOUT: "300"
+  MEM0_INGEST_TIMEOUT: "900"
+  MEM0_NODE_PATH: "@run_dir@/runtime/openclaw/npm/node_modules"
+
+commands:
+  validate: |
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}/openclaw.json" "$MEM0_PLUGIN_NAME" <<'PY'
+    import json, sys, urllib.request
+    path, plugin = sys.argv[1:]
+    root = json.load(open(path, encoding="utf-8"))
+    plugins = root.get("plugins") or {}
+    if plugins.get("enabled") is False:
+        raise SystemExit("OpenClaw plugins are disabled")
+    if isinstance(plugins.get("allow"), list) and plugin not in plugins["allow"]:
+        raise SystemExit(f"OpenClaw plugins.allow does not include {plugin}")
+    if (plugins.get("slots") or {}).get("memory") != plugin:
+        raise SystemExit(f"OpenClaw memory slot is not {plugin}")
+    entry = (plugins.get("entries") or {}).get(plugin)
+    if not isinstance(entry, dict) or entry.get("enabled") is False:
+        raise SystemExit(f"{plugin} is missing or disabled")
+    config = entry.get("config") or {}
+    if str(config.get("mode") or "").lower() not in {"open-source", "oss"}:
+        raise SystemExit("OpenClaw Mem0 evaluation currently requires OSS mode")
+    vector = ((config.get("oss") or {}).get("vectorStore") or {})
+    if str(vector.get("provider") or "").lower() != "qdrant":
+        raise SystemExit("OpenClaw Mem0 evaluation currently requires Qdrant")
+    settings = vector.get("config") or {}
+    base = str(settings.get("url") or "").rstrip("/")
+    collection = str(settings.get("collectionName") or "")
+    if not base or not collection:
+        raise SystemExit("Mem0 Qdrant url and collectionName are required")
+    with urllib.request.urlopen(base + "/collections", timeout=10) as response:
+        if response.status >= 400:
+            raise SystemExit(f"Qdrant health returned HTTP {response.status}")
+    PY
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_OPENCLAW_HOME:?}"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent openclaw --source "$source_home" --runtime "$OPENCLAW_HOME" \
+      --run-dir "@run_dir@" --link npm
+    tmp_dir="$(mktemp -d)"
+    install -m 600 "$source_home/openclaw.json" "$tmp_dir/openclaw.json"
+    printf '%s\n' \
+      'Evaluation uses a run-scoped Mem0 userId; existing user points are not modified.' \
+      > "$tmp_dir/README"
+    tar -czf "@global_backup_file@" -C "$tmp_dir" openclaw.json README
+    rm -rf "$tmp_dir"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" prepare
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" status
+    BASH
+  set_mode_train: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" mode train
+  set_mode_test: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" mode test
+  clear: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" clear
+  wait_settle: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" ingest \
+      "@run_dir@/train"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" wait \
+      --timeout "${MEM0_SETTLE_TIMEOUT:-300}" --stable-seconds 6
+  backup: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" backup "@backup_file@"
+  restore: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" restore "@backup_file@"
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/mem0_openclaw_ctl.py" clear
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$OPENCLAW_HOME" --run-dir "@run_dir@"
+    rm -f "$MEM0_MODE_STATE"
+    BASH

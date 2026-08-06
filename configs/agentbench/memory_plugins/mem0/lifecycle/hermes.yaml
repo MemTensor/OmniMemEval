@@ -1,0 +1,93 @@
+kind: memory_lifecycle
+plugin: mem0
+agent: hermes
+
+backup_dir: "@run_dir@/memory_backups"
+backup_file_template: "@backup_dir@/mem0-hermes-@domain@-@run_id@.tar.gz"
+global_backup_file_template: "@backup_dir@/mem0-hermes-user-config-@run_date@-@run_id@.tar.gz"
+settle_seconds: 0
+
+execution:
+  # Embedded Qdrant takes an exclusive lock on its local storage directory.
+  max_parallel: 1
+
+feedback:
+  enabled: true
+  timeout: 300
+  structured_submit: false
+  backend: none
+  memos_structured_submit: false
+
+env:
+  HERMES_HOME: "@run_dir@/runtime/hermes"
+  OMNIMEMEVAL_RUN_DIR: "@run_dir@"
+  MEM0_DIR: "@run_dir@/runtime/mem0"
+  HERMES_MEM0_QDRANT_PATH: "@run_dir@/runtime/mem0-qdrant"
+  MEM0_EVAL_USER_ID: "omnimemeval:@run_id@"
+  MEM0_EVAL_AGENT_ID: "hermes"
+  MEM0_SETTLE_TIMEOUT: "300"
+  MEM0_INGEST_TIMEOUT: "900"
+  HERMES_PYTHON: "/usr/local/lib/hermes-agent/venv/bin/python"
+
+commands:
+  validate: |
+    "@python@" - "${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}" "$HERMES_PYTHON" <<'PY'
+    import json, subprocess, sys
+    from pathlib import Path
+    import yaml
+    home, hermes_python = Path(sys.argv[1]), Path(sys.argv[2])
+    root = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8")) or {}
+    if (root.get("memory") or {}).get("provider") != "mem0":
+        raise SystemExit("Hermes memory.provider is not mem0")
+    config = json.loads((home / "mem0.json").read_text(encoding="utf-8"))
+    if str(config.get("mode") or "").lower() != "oss":
+        raise SystemExit("Hermes Mem0 evaluation currently requires OSS mode")
+    vector = ((config.get("oss") or {}).get("vector_store") or {})
+    settings = vector.get("config") or {}
+    if str(vector.get("provider") or "").lower() != "qdrant" or not settings.get("path"):
+        raise SystemExit("Hermes Mem0 evaluation requires a local Qdrant path")
+    if not hermes_python.is_file():
+        raise SystemExit(f"Hermes Python does not exist: {hermes_python}")
+    subprocess.run(
+        [str(hermes_python), "-c", "import mem0, qdrant_client"],
+        check=True,
+    )
+    PY
+  prepare_global_snapshot: |
+    bash <<'BASH'
+    set -euo pipefail
+    umask 077
+    source_home="${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" prepare \
+      --agent hermes --source "$source_home" --runtime "$HERMES_HOME" \
+      --run-dir "@run_dir@" --copy mem0.json
+    tmp_dir="$(mktemp -d)"
+    install -m 600 "$source_home/config.yaml" "$tmp_dir/config.yaml"
+    install -m 600 "$source_home/mem0.json" "$tmp_dir/mem0.json"
+    printf '%s\n' \
+      'Evaluation uses run-owned Mem0 Qdrant and history paths; user data is not modified.' \
+      > "$tmp_dir/README"
+    tar -czf "@global_backup_file@" -C "$tmp_dir" config.yaml mem0.json README
+    rm -rf "$tmp_dir"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" prepare
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" status
+    BASH
+  clear: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" clear
+  wait_settle: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" ingest \
+      "@run_dir@/train"
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" wait \
+      --timeout "${MEM0_SETTLE_TIMEOUT:-300}" --stable-seconds 6
+  backup: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" backup "@backup_file@"
+  restore: |
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" restore "@backup_file@"
+  cleanup: |
+    bash <<'BASH'
+    set -euo pipefail
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" clear
+    "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/prepare_runtime_home.py" cleanup \
+      --runtime "$HERMES_HOME" --run-dir "@run_dir@"
+    rm -rf "$MEM0_DIR" "$HERMES_MEM0_QDRANT_PATH"
+    BASH

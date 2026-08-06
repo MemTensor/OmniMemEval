@@ -11,6 +11,7 @@ AgentBench 是 OmniMemEval 中面向 Agent Runtime 的评测模块，用于评�
 
 产品评测配置与运行说明：
 
+- [Mem0](./products/mem0_zh.md)
 - [EverOS](./products/everos_zh.md)
 - [Hindsight](./products/hindsight_zh.md)
 - [OpenViking](./products/openviking_zh.md)

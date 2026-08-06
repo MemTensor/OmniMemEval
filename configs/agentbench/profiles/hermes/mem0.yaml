@@ -1,0 +1,12 @@
+kind: agent_profile
+name: mem0
+agent: hermes
+memory_plugin: mem0
+
+# Product selection remains in the user's Hermes config. The lifecycle exposes
+# a run-owned mem0.json and local Qdrant path to every trial.
+agent_patch:
+  runtime:
+    home_mode: isolated_copy
+    home_links:
+      - mem0.json
