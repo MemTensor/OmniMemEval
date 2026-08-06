@@ -97,7 +97,6 @@ docs/
   user_memory/                # User Memory Evaluation 中英文文档
   agent_memory/               # Agent Memory Evaluation 中英文文档和结果
   benchmark-results.md        # User Memory 公开结果快照
-  agentbench-migration-design.md # AgentBench 迁移设计文档
 env_examples/                 # 环境变量模板和参数说明
 scripts/
   agentbench/                 # AgentBench runner 实现

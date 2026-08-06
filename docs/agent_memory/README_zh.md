@@ -107,26 +107,39 @@ pip install -r requirements_agentbench.txt
 npm install -g openclaw
 ```
 
+如需评测 Hermes，请先按 Hermes 的部署方式安装 CLI，并确保当前 shell 能直接调用：
+
+```bash
+hermes --version
+hermes chat --help
+```
+
 如需运行记忆插件生命周期评测，需要先安装待测记忆插件。以下以 MemOS local plugin 为例：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MemTensor/MemOS/main/apps/memos-local-plugin/install.sh | bash
+# 可选值为 openclaw、hermes 或 all
+TARGET_AGENT=hermes
+curl -fsSL https://raw.githubusercontent.com/MemTensor/MemOS/main/apps/memos-local-plugin/install.sh \
+  | bash -s -- --agent "$TARGET_AGENT"
 ```
 
-插件安装完成后，还需要完成 OpenClaw 和记忆插件配置，再进行验证。具体配置项取决于待测插件。以 MemOS local plugin 为例，安装脚本完成后，需要按插件要求补齐 OpenClaw 配置目录下生成的插件配置，并确认该插件在 OpenClaw 配置中处于启用状态。
+插件安装完成后，还需要完成目标 Runtime 和记忆插件配置，再进行验证。具体配置项取决于待测插件。以 MemOS local plugin 为例，OpenClaw 使用 `~/.openclaw/memos-plugin/`，Hermes 使用 `~/.hermes/memos-plugin/`；需要按插件要求补齐对应 `config.yaml` 中的 LLM、embedding 和凭证配置。Hermes 安装还应生成 `~/.hermes/plugins/memory/memtensor` provider。OmniMemEval 的 Hermes MemOS profile 会在隔离的评测配置中选择评测专用 provider，不会改写用户的全局 Hermes 配置。
 
 运行 AgentBench 前至少确认：
 
-- OpenClaw 已配置可用的模型/provider。
-- 记忆插件已安装，并在 OpenClaw 配置中启用。
+- 待测的 OpenClaw 或 Hermes 已配置可用的模型/provider。
+- 记忆插件已安装，并在目标 Runtime 中可被发现。
 - 插件所需的凭证、本地路径或服务 endpoint 已配置。
 - 下文所述 `.env.agent` 已准备完成。
 
-安装和配置都完成后，验证 OpenClaw CLI 是否可以正常调用：
+安装和配置都完成后，根据目标 Runtime 验证 CLI 是否可以正常调用：
 
 ```bash
 openclaw --version
 openclaw agent --help
+
+hermes --version
+hermes chat --help
 ```
 
 运行 LiveCodeBench 域前，应完成上文的 `LiveCodeBench` 安装。SWE-Bench 域依赖 Docker；信息检索域依赖 embedding endpoint；GDPVal 域依赖 PDF/Office 文件处理工具。
@@ -241,9 +254,149 @@ MemOS lifecycle smoke 建议先跑单域 1 train / 1 test：
   --settle-seconds 0
 ```
 
-该脚本会执行完整 `memory_train_backup_test` 生命周期：清理记忆、训练、发送
-verifier feedback、提交 MemOS structured feedback、备份、恢复、测试和 finalize。
-建议先用它验证本地 OpenClaw、MemOS、模型、judge 和 embedding 配置，再启动五域完整评测。
+上述默认 OpenClaw smoke 会执行完整 `memory_train_backup_test` 生命周期：清理记忆、
+训练、发送 verifier feedback、提交 MemOS structured feedback、备份、恢复、测试和
+finalize。建议先用它验证本地 OpenClaw、MemOS、模型、judge 和 embedding 配置，
+再启动五域完整评测。Hermes + MemOS 默认不执行额外的 structured submit，具体流程见
+下一节。
+
+### Hermes + MemOS 插件测评
+
+下面以 Hermes + MemOS 为例说明完整流程。Hindsight、OpenViking、Supermemory
+等其他 Hermes memory provider 的安装和配置差异见本目录下对应的产品文档；运行入口
+和 `memory_train_backup_test` 协议保持一致。
+
+#### 1. 前置检查
+
+默认 Hermes home 为 `~/.hermes`。如果使用其他目录，应在启动评测前设置
+`HERMES_HOME`。Hermes + MemOS lifecycle 会检查 Hermes 配置、MemOS bridge 以及
+所需系统命令：
+
+```bash
+command -v hermes
+command -v node
+command -v sqlite3
+command -v timeout
+command -v curl
+
+test -f "${HERMES_HOME:-$HOME/.hermes}/config.yaml"
+test -f "${HERMES_HOME:-$HOME/.hermes}/memos-plugin/config.yaml"
+test -f "${HERMES_HOME:-$HOME/.hermes}/memos-plugin/dist/bridge.cjs"
+test -e "${HERMES_HOME:-$HOME/.hermes}/plugins/memory/memtensor"
+```
+
+其中 `~/.hermes/memos-plugin/config.yaml` 是 MemOS 自身的配置；项目根目录
+`.env.agent` 和 `configs/agentbench/agents/hermes.yaml` 控制本次 AgentBench 使用的
+Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭证可用。
+
+#### 2. 先运行单域 smoke
+
+先用 reasoning 域的 1 条 train 和 1 条 test 验证完整链路：
+
+```bash
+./scripts/run_agentbench_memos_5domain_1each_smoke.sh \
+  --agent hermes \
+  --domains reasoning \
+  --version hermes_memos_reasoning_1each_smoke \
+  --tasks-per-split 1 \
+  --trials 1 \
+  --test-runs 1 \
+  --parallel 1 \
+  --settle-seconds 0
+```
+
+如需定位具体样本，可以直接指定 train/test task：
+
+```bash
+./scripts/run_agent_eval.sh \
+  --agent hermes \
+  --domain reasoning \
+  --protocol memory_train_backup_test \
+  --memory-plugin memos \
+  --version hermes_memos_reasoning_debug \
+  --train-task omni_35 \
+  --test-task omni_2080 \
+  --test-runs 1 \
+  --trials 1 \
+  --parallel 1
+```
+
+#### 3. 启动正式评测
+
+单域完整 train/test：
+
+```bash
+./scripts/run_agent_eval.sh \
+  --agent hermes \
+  --domain reasoning \
+  --protocol memory_train_backup_test \
+  --memory-plugin memos \
+  --version hermes_memos_reasoning_eval \
+  --test-runs 1 \
+  --trials 1 \
+  --parallel 1
+```
+
+五域顺序运行：
+
+```bash
+./scripts/run_agentbench_memory_train_backup_test.sh \
+  --agent hermes \
+  --memory-plugin memos \
+  --version hermes_memos_5domain_eval \
+  --test-runs 1 \
+  --trials 1 \
+  --parallel 1
+```
+
+也可以通过 `--domains reasoning,code_implementation` 只运行指定域。正式运行前
+应先完成上面的单域 smoke；不同域的 verifier、Docker、检索索引和文档工具依赖仍按
+“数据准备”一节配置。
+
+#### 4. Hermes + MemOS 实际执行语义
+
+该流程不是直接在用户的全局 MemOS 数据库上训练和测试：
+
+1. lifecycle 先备份用户原有的 Hermes MemOS SQLite，并在结果目录下建立隔离的
+   run-scoped `HERMES_HOME` 和 `MEMOS_HOME`；不会清空或覆盖原始
+   `~/.hermes/memos-plugin/data/memos.db`。
+2. `profiles/hermes/memos.yaml` 为每个任务创建临时 Hermes home，加载
+   `omnimemeval_memos` 评测 provider，并把可变数据写入本次运行的 MemOS SQLite。
+3. train task 完成验证后，verifier feedback 通过 `hermes chat --resume` 发送到同一个
+   真实 Hermes session。Hermes MemOS 默认依靠这个正常对话 turn 捕获 feedback，
+   因此 lifecycle 中 `structured_submit` 默认为 `false`，不要为该流程额外开启
+   `--memos-structured-feedback`。
+4. 每个成功的 train 调用都必须在 MemOS DB 中形成已关闭且非空的 episode；只返回
+   Hermes CLI 成功但没有持久化记忆，会被视为技术失败。
+5. train 结束后，lifecycle 等待 episode 关闭，并排空 embedding/evolution 队列；
+   SQLite 完整性检查通过后才生成当前域的训练备份。
+6. 每轮 test 前恢复同一份训练备份，再运行 test split。test 完成后执行 finalize、
+   checkpoint 和 cleanup，避免不同域或重复测试之间共享意外状态。
+
+结果目录示例：
+
+```text
+results/agentbench/hermes-memos-hermes_memos_reasoning_eval-reasoning/
+  experiment_config.json
+  memory_lifecycle.log
+  memory_lifecycle.json
+  memory_backups/
+    user-global-hermes-*.sqlite3
+    memos-hermes-reasoning-*.sqlite3
+  train/
+  test_run_1/
+```
+
+排查 Hermes + MemOS 时，优先检查：
+
+- `memory_lifecycle.log`：validate、clear、settle、backup、restore 和 cleanup 是否成功。
+- `memory_lifecycle.json`：各生命周期阶段的命令、时间和退出状态。
+- `train/<task>__trial_1/result.json` 中的 `agent_result.memos_capture`：是否记录了
+  持久化的 Hermes session/episode。
+- 运行期间的 `<run_dir>/runtime/hermes/memos-plugin/logs/`：bridge、embedding 或
+  evolution 的详细错误。cleanup 后该隔离目录会被删除，应在失败现场先保留日志。
+- Hermes viewer 默认端口为 `18800`。`MEMOS_START_DAEMON=auto` 时若端口已被用户
+  daemon 占用，评测会保留该进程并以 headless 方式继续，不会停止用户 daemon。
 
 ### `test_only`
 
@@ -280,7 +433,8 @@ verifier feedback、提交 MemOS structured feedback、备份、恢复、测试�
 1. 设置插件为 train 模式。
 2. 清理记忆。
 3. 执行 train split。
-4. train verifier 完成后，将 feedback 作为同一 OpenClaw session 的下一轮消息提交。
+4. train verifier 完成后，将 feedback 作为同一个 Agent session（OpenClaw 或
+   Hermes）的下一轮消息提交。
 5. 若插件配置启用 structured feedback，则提交插件侧显式反馈，并保证 task turn 和 feedback turn 保持同一 session/episode 语义。
 6. 等待插件沉淀/进化，默认由 `settle_seconds` 或 `wait_settle` 配置控制。
 7. 备份当前域的记忆。

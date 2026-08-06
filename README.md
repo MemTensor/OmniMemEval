@@ -97,7 +97,6 @@ docs/
   user_memory/                # User Memory Evaluation guides (EN/ZH)
   agent_memory/               # Agent Memory Evaluation guides and results (EN/ZH)
   benchmark-results.md        # User Memory public result snapshot
-  agentbench-migration-design.md # AgentBench migration design notes
 env_examples/                 # Environment templates and parameter docs
 scripts/
   agentbench/                 # AgentBench runner implementation
