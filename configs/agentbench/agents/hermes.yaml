@@ -8,17 +8,9 @@ agent:
   name: hermes
   command: hermes
 
-  # Optional model route. Configure LLM_BASE_URL/LLM_API_KEY in .env.agent or
-  # pass --env <file>. If omitted, Hermes uses ~/.hermes/config.yaml.
-  model: qwen3.8-max
-  provider: custom
-  providers:
-    custom:
-      apiKey: ${LLM_API_KEY}
-      apiBase: ${LLM_BASE_URL}
-      extraBody:
-        chat_template_kwargs:
-          enable_thinking: false
+  # Model/provider settings intentionally come from ~/.hermes/config.yaml.
+  # Use --agent-config with a separate YAML file when a benchmark run must pin
+  # a particular model or provider; the repository default stays portable.
 
   # Optional generation settings mapped into Hermes config.
   reasoningEffort: none

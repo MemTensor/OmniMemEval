@@ -430,10 +430,8 @@ def test_hermes_information_retrieval_is_search_only(tmp_path, monkeypatch):
     }
 
 
-def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch):
+def test_hermes_base_config_inherits_global_model(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("LLM_API_KEY", "test-key")
-    monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
     _write_global_hermes_config(tmp_path)
 
     base = load_yaml(ROOT / "configs" / "agentbench" / "agents" / "hermes.yaml")["agent"]
@@ -456,12 +454,9 @@ def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch
     )
 
     temp_config = yaml.safe_load((Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8"))
-    provider = next(
-        item for item in temp_config["custom_providers"] if item["name"] == "qwen3.8-max"
-    )
-
+    assert temp_config["model"]["default"] == "base-model"
+    assert "custom_providers" not in temp_config
     assert temp_config["agent"]["reasoning_effort"] == "none"
-    assert provider["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
 
 
 def test_hermes_feedback_resumes_real_hermes_session(tmp_path, monkeypatch):
