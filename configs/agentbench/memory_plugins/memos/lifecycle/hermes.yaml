@@ -10,6 +10,10 @@ global_backup_file_template: "@backup_dir@/user-global-hermes-@run_date@-@run_id
 resume_file_template: "@backup_dir@/memos-hermes-@domain@-@run_id@-resume.sqlite3"
 settle_seconds: 0
 
+execution:
+  max_parallel: 5
+  phase_session_audit: true
+
 feedback:
   enabled: true
   timeout: 300
@@ -28,10 +32,14 @@ env:
   MEMOS_DAEMON_TERM_TIMEOUT: "300"
   MEMOS_DAEMON_START_WAIT_SECONDS: "30"
   MEMOS_PREWARM_TIMEOUT: "300"
-  # The daemon only serves the viewer; per-chat stdio bridges own capture.
-  # auto starts it only when :18800 is free, so an unrelated user daemon is
-  # never stopped merely to expose the evaluation viewer.
-  MEMOS_START_DAEMON: "auto"
+  MEMOS_HERMES_RUNTIME_MODE: "shared"
+  # Model-provider retries multiply the configured 180s timeout and block the
+  # single-consumer evolution queue. AgentBench owns task-level retries, so a
+  # run-scoped MemOS worker should make each model call at most once.
+  MEMOS_EVAL_LLM_MAX_RETRIES: "0"
+  # The shared headless Runtime owns MemoryCore. Starting the legacy viewer
+  # daemon against the same database would create a second writer.
+  MEMOS_START_DAEMON: "0"
 
 commands:
   validate: |
@@ -94,6 +102,37 @@ commands:
         cp -p "$entry" "$plugin/$name"
       fi
     done < <(find "$source_plugin" -mindepth 1 -maxdepth 1 -print0)
+
+    # Hermes cannot service MemOS' host-LLM fallback. Apply a failure policy
+    # only to this private evaluation copy; never rewrite the user's plugin
+    # config under OMNIMEMEVAL_ORIGINAL_HERMES_HOME.
+    PLUGIN_CONFIG="$plugin/config.yaml" "@python@" - <<'PY'
+    import os
+    from pathlib import Path
+
+    import yaml
+
+    path = Path(os.environ["PLUGIN_CONFIG"])
+    max_retries = int(os.environ.get("MEMOS_EVAL_LLM_MAX_RETRIES", "0"))
+    if not 0 <= max_retries <= 10:
+        raise SystemExit("MEMOS_EVAL_LLM_MAX_RETRIES must be between 0 and 10")
+    config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(config, dict):
+        raise SystemExit("MemOS config root must be a mapping")
+    for name in ("llm", "skillEvolver", "l3Llm"):
+        slot = config.setdefault(name, {})
+        if not isinstance(slot, dict):
+            raise SystemExit(f"MemOS config {name} must be a mapping")
+        slot["maxRetries"] = max_retries
+        slot["fallbackToHost"] = False
+    temporary = path.with_suffix(".yaml.tmp")
+    temporary.write_text(
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+    PY
     chmod 600 "$plugin/config.yaml" "$plugin/.auth.json" 2>/dev/null || true
     BASH
 
@@ -115,7 +154,9 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+        esac
       done
     }
     stop_runtime() {
@@ -157,11 +198,33 @@ commands:
     prewarm_database() {
       mode="${MEMOS_PREWARM:-1}"
       [ "$mode" != "0" ] && [ "$mode" != "false" ] || return 0
-      # One bridge initializes and migrates the fresh run DB before parallel
-      # Hermes tasks start.  Closed stdin makes it exit immediately after init.
-      timeout --signal=TERM --kill-after=10s "${MEMOS_PREWARM_TIMEOUT:-300}s" \
-        node "$plugin/dist/bridge.cjs" --agent=hermes --no-viewer </dev/null \
-        >>"$plugin/logs/prewarm.log" 2>&1
+      # Probe the actual packaged transport. This both migrates the fresh DB
+      # and refuses parallel execution when an old direct-bridge build is used.
+      health="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"core.health","params":{}}' | \
+        timeout --signal=TERM --kill-after=10s "${MEMOS_PREWARM_TIMEOUT:-300}s" \
+        node "$plugin/dist/bridge.cjs" --agent=hermes --no-viewer \
+        2>>"$plugin/logs/prewarm.log" | tail -n 1)"
+      if [ "${OMNIMEMEVAL_PARALLEL:-1}" -gt 1 ]; then
+        HEALTH_JSON="$health" "@python@" - <<'PY'
+    import json
+    import os
+
+    payload = json.loads(os.environ["HEALTH_JSON"])
+    result = payload.get("result") or {}
+    runtime = result.get("runtime") or {}
+    capabilities = set(runtime.get("capabilities") or [])
+    if (
+        result.get("agent") != "hermes"
+        or runtime.get("runtimeMode") != "shared-ipc"
+        or runtime.get("multiProcess") is not True
+        or "hermes.shared-runtime.v1" not in capabilities
+        or "hermes.turn-end-idempotency.v1" not in capabilities
+    ):
+        raise SystemExit(
+            "installed MemOS plugin does not advertise Hermes multi-process shared runtime"
+        )
+    PY
+      fi
       [ -s "$db" ] || { echo "Hermes MemOS prewarm did not create $db" >&2; return 1; }
       required="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue','evolution_jobs');")"
       [ "$required" = "5" ] || { echo "Hermes MemOS prewarm did not create required pipeline tables" >&2; return 1; }
@@ -201,7 +264,9 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+        esac
       done
     }
     capture_pids() {
@@ -214,7 +279,7 @@ commands:
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
         case "$args" in
-          *bridge.cjs*--agent=hermes*--no-viewer*|*bridge.cts*--agent=hermes*--no-viewer*) printf '%s\n' "$pid";;
+          *runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*--no-viewer*|*bridge.cts*--agent=hermes*--no-viewer*) printf '%s\n' "$pid";;
         esac
       done
     }
@@ -268,6 +333,25 @@ commands:
     schema_ready || { echo "Hermes MemOS DB/schema was not created" >&2; exit 1; }
     session_gate || { echo "Hermes MemOS expected exactly $expected distinct non-empty trial sessions" >&2; exit 1; }
 
+    # The shared owner starts its own background drain as soon as the last
+    # client disconnects.  Let it finish leased model/evolution work before
+    # signalling it: SIGTERM calls core.shutdown(), which correctly awaits the
+    # worker but cannot cancel an already-running model request.  Signalling
+    # first therefore turns a normal drain into an avoidable term-timeout.
+    background_deadline=$((SECONDS + timeout))
+    while [ "$SECONDS" -lt "$background_deadline" ]; do
+      if settled_gate && [ -z "$(runtime_pids)" ]; then break; fi
+      [ -n "$(runtime_pids)" ] || break
+      sleep 1
+    done
+    background_failed=0
+    if [ -n "$(runtime_pids)" ] && ! settled_gate; then
+      echo "Hermes MemOS background work did not settle before shutdown" >&2
+      background_failed=1
+    fi
+
+    # A clean owner normally exits itself after the quiet interval.  Retain a
+    # bounded TERM fallback for a settled owner whose event loop stays alive.
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done
     shutdown_deadline=$((SECONDS + term_timeout))
     while [ "$SECONDS" -lt "$shutdown_deadline" ]; do
@@ -278,6 +362,7 @@ commands:
       echo "Hermes MemOS bridges did not drain and stop gracefully; refusing to back up" >&2
       exit 1
     }
+    [ "$background_failed" -eq 0 ] || exit 1
 
     # Keep stdin open while one run-scoped headless bridge recovers leases and
     # drains the single-consumer evolution/embedding queues. A bridge started
@@ -333,7 +418,9 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+        esac
       done
     }
     stop_runtime() {
@@ -432,7 +519,9 @@ commands:
         env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
         printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
         args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
-        case "$args" in *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";; esac
+        case "$args" in
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+        esac
       done
     }
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 from string import Template
 import subprocess
 import sys
@@ -36,6 +38,7 @@ class CommandMemoryLifecycle:
         run_dir: Path,
         run_id: str,
         version: str,
+        parallel: int = 1,
     ) -> None:
         self.config = config
         self.project_dir = Path(project_dir).expanduser().resolve()
@@ -45,6 +48,9 @@ class CommandMemoryLifecycle:
         self.run_dir = candidate_run_dir.resolve()
         self.run_id = run_id
         self.version = version
+        self.parallel = int(parallel)
+        if self.parallel < 1:
+            raise ValueError("parallel must be >= 1")
         self.run_date = datetime.now().strftime("%F")
         self.plugin = str(config.get("plugin") or config.get("name") or "memory")
         self.agent = str(config.get("agent") or "")
@@ -109,7 +115,83 @@ class CommandMemoryLifecycle:
             text = Template(text).safe_substitute(variables)
             rendered[str(key)] = text
             variables[str(key)] = text
+        rendered["OMNIMEMEVAL_PARALLEL"] = str(self.parallel)
         return rendered
+
+    def audit_phase_sessions(
+        self,
+        db_path: str | os.PathLike[str],
+        expected: dict[str, str],
+    ) -> None:
+        """Require a one-to-one durable mapping from trial keys to sessions."""
+
+        if not expected:
+            raise ValueError("expected trial/session mapping must not be empty")
+        path = Path(db_path).expanduser().resolve()
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError(f"MemOS phase session audit DB is missing: {path}")
+
+        uri = f"file:{path}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=30)
+        try:
+            rows = conn.execute(
+                """
+                SELECT e.id, e.session_id, e.status, e.trace_ids_json,
+                       e.meta_json, count(t.id)
+                FROM episodes AS e
+                LEFT JOIN traces AS t ON t.episode_id = e.id
+                GROUP BY e.id, e.session_id, e.status, e.trace_ids_json, e.meta_json
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+
+        expected_scopes = {
+            tuple(trial_key.split(":", 3)[1:3])
+            for trial_key in expected
+            if trial_key.startswith("omnimemeval:") and len(trial_key.split(":", 3)) >= 3
+        }
+        observed: dict[str, set[str]] = {}
+        invalid: list[str] = []
+        unexpected: list[str] = []
+        for episode_id, session_id, status, trace_ids_json, meta_json, trace_count in rows:
+            try:
+                meta = json.loads(meta_json or "{}")
+            except (TypeError, ValueError):
+                meta = {}
+            hints = meta.get("contextHints") if isinstance(meta, dict) else None
+            trial_key = hints.get("omnimemevalTrialKey") if isinstance(hints, dict) else None
+            if not isinstance(trial_key, str) or not trial_key:
+                continue
+            scope_parts = trial_key.split(":", 3)
+            scope = tuple(scope_parts[1:3]) if len(scope_parts) >= 3 else ()
+            if trial_key not in expected:
+                if scope in expected_scopes:
+                    unexpected.append(f"{trial_key}->{session_id}")
+                continue
+            observed.setdefault(trial_key, set()).add(str(session_id))
+            try:
+                trace_ids = json.loads(trace_ids_json or "[]")
+            except (TypeError, ValueError):
+                trace_ids = []
+            if status != "closed" or not trace_ids or int(trace_count or 0) < 1:
+                invalid.append(
+                    f"{trial_key}:episode={episode_id}:status={status}:traces={trace_count}"
+                )
+
+        problems: list[str] = []
+        for trial_key, expected_session in expected.items():
+            actual_sessions = observed.get(trial_key, set())
+            if actual_sessions != {expected_session}:
+                problems.append(
+                    f"{trial_key}: expected={expected_session} actual={sorted(actual_sessions)}"
+                )
+        if invalid:
+            problems.append("invalid episodes: " + ", ".join(sorted(invalid)))
+        if unexpected:
+            problems.append("unexpected trials: " + ", ".join(sorted(unexpected)))
+        if problems:
+            raise RuntimeError("MemOS phase session audit failed: " + "; ".join(problems))
 
     def validate(self, domain: str) -> None:
         self._run_stage("validate", domain)

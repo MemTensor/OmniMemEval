@@ -199,6 +199,25 @@ def test_profiles_keep_runtime_specific_patches_separate():
     assert hermes_config["runtime"]["verify_memos_capture"] is True
     assert hermes_config["memory"]["memory_enabled"] is False
     assert hermes_config["memory"]["user_profile_enabled"] is False
+    compression = hermes_config["hermes_config_patch"]["compression"]
+    assert compression == {
+        "enabled": True,
+        "threshold": 0.35,
+        "target_ratio": 0.2,
+        "protect_last_n": 8,
+        "protect_first_n": 1,
+    }
+    assert hermes_config["hermes_config_patch"]["auxiliary"]["compression"][
+        "timeout"
+    ] == 300
+
+
+def test_knowledge_work_uses_domain_specific_evaluator_timeout():
+    config = load_yaml(
+        ROOT / "configs" / "agentbench" / "domains" / "knowledge_work.yaml"
+    )
+
+    assert config["eval_timeout"] == 360
 
 
 def test_memos_lifecycles_use_private_sqlite_only_backups():
@@ -317,6 +336,20 @@ def test_hermes_memos_settle_drains_all_background_queues_before_backup():
     assert helper.index("stop_existing_runtime") < helper.index(
         'node "$bridge" --agent=hermes --no-viewer'
     )
+    wait_for_idle = command.index('if settled_gate && [ -z "$(runtime_pids)" ]; then')
+    terminate_runtime = command.index("for pid in $(runtime_pids); do kill -TERM")
+    assert wait_for_idle < terminate_runtime
+    assert "Hermes MemOS background work did not settle before shutdown" in command
+
+
+def test_hermes_memos_prepares_run_scoped_llm_failure_policy():
+    config = load_yaml(_default_memory_plugin_config("hermes", "memos"))
+    prepare = config["commands"]["prepare_global_snapshot"]
+
+    assert config["env"]["MEMOS_EVAL_LLM_MAX_RETRIES"] == "0"
+    assert 'slot["maxRetries"] = max_retries' in prepare
+    assert 'slot["fallbackToHost"] = False' in prepare
+    assert 'for name in ("llm", "skillEvolver", "l3Llm")' in prepare
 
 
 def test_hermes_memos_finalizes_test_pipeline_before_checkpoint_and_cleanup():
@@ -348,7 +381,9 @@ def test_hermes_memos_drain_never_matches_lifecycle_shell_argv(tmp_path):
     )
     with sqlite3.connect(db) as conn:
         conn.executescript(
-            "CREATE TABLE episodes (status TEXT);"
+            "CREATE TABLE episodes ("
+            "status TEXT, trace_ids_json TEXT DEFAULT '[]', r_task REAL, "
+            "meta_json TEXT DEFAULT '{}');"
             "CREATE TABLE traces (id TEXT);"
             "CREATE TABLE evolution_jobs ("
             "id TEXT, job_type TEXT, status TEXT, attempts INTEGER, "
@@ -396,6 +431,56 @@ def test_hermes_memos_drain_never_matches_lifecycle_shell_argv(tmp_path):
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "drain-ok"
     assert existing.poll() is not None
+
+
+def test_hermes_memos_drain_accepts_paused_empty_topic(tmp_path):
+    plugin = tmp_path / "memos-plugin"
+    bridge = plugin / "dist" / "bridge.cjs"
+    db = plugin / "data" / "memos.db"
+    bridge.parent.mkdir(parents=True)
+    db.parent.mkdir(parents=True)
+    bridge.write_text(
+        "process.stdin.resume();\n"
+        "const timer = setInterval(() => {}, 1000);\n"
+        "process.on('SIGTERM', () => { clearInterval(timer); process.exit(0); });\n",
+        encoding="utf-8",
+    )
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            "CREATE TABLE episodes ("
+            "status TEXT, trace_ids_json TEXT, r_task REAL, meta_json TEXT);"
+            "INSERT INTO episodes VALUES ("
+            "'open', '[]', NULL, "
+            "'{\"topicState\":\"paused\",\"pauseReason\":\"session_closed:client\"}');"
+            "CREATE TABLE traces (id TEXT);"
+            "CREATE TABLE evolution_jobs ("
+            "id TEXT, job_type TEXT, status TEXT, attempts INTEGER, "
+            "max_attempts INTEGER, last_error TEXT);"
+            "CREATE TABLE embedding_retry_queue ("
+            "id TEXT, target_kind TEXT, status TEXT, attempts INTEGER, "
+            "max_attempts INTEGER, last_error TEXT);"
+        )
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "MEMOS_PLUGIN_HOME": str(plugin),
+            "MEMOS_DB": str(db),
+            "MEMOS_FINALIZE_TIMEOUT": "2",
+            "MEMOS_DAEMON_TERM_TIMEOUT": "2",
+            "MEMOS_RECONCILE_QUIET_POLLS": "1",
+        }
+    )
+    helper = ROOT / "scripts" / "agentbench" / "hermes_memos_drain.sh"
+    completed = subprocess.run(
+        ["bash", str(helper)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_existing_trial_results_detect_only_real_trial_outputs(tmp_path):

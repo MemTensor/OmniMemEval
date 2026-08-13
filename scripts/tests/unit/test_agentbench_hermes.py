@@ -303,6 +303,11 @@ def test_hermes_memos_test_uses_normal_writable_provider(tmp_path, monkeypatch):
         }
         assert writable_provider.is_symlink()
         assert (writable_provider / "__init__.py").exists()
+        manifest = yaml.safe_load(
+            (writable_provider / "plugin.yaml").read_text(encoding="utf-8")
+        )
+        assert manifest["name"] == "omnimemeval_memos"
+        assert manifest["kind"] == "exclusive"
         assert not (temp_home / "plugins" / "omnimemeval_memos_readonly").exists()
         assert json.loads(
             (tmp_path / ".hermes" / "config.yaml").read_text(encoding="utf-8")
@@ -452,7 +457,7 @@ def test_hermes_provider_extra_body_disables_qwen_thinking(tmp_path, monkeypatch
 
     temp_config = yaml.safe_load((Path(agent._temp_home) / "config.yaml").read_text(encoding="utf-8"))
     provider = next(
-        item for item in temp_config["custom_providers"] if item["name"] == "qwen3.6-flash"
+        item for item in temp_config["custom_providers"] if item["name"] == "qwen3.8-max"
     )
 
     assert temp_config["agent"]["reasoning_effort"] == "none"
@@ -534,6 +539,38 @@ def test_hermes_train_requires_durable_memos_capture(tmp_path, monkeypatch):
     try:
         with pytest.raises(RuntimeError, match="capture was not persisted"):
             agent.call("task prompt", session, timeout=5)
+    finally:
+        agent.cleanup_task()
+
+
+def test_hermes_test_requires_durable_memos_capture(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    memos_db = tmp_path / "run-memos" / "data" / "memos.db"
+    monkeypatch.setenv("MEMOS_DB", str(memos_db))
+    _write_global_hermes_config(tmp_path)
+    fake_hermes = tmp_path / "hermes"
+    _write_fake_hermes(fake_hermes)
+
+    agent = HermesAgentAdapter({
+        "command": str(fake_hermes),
+        "runtime": {
+            "verify_memos_capture": True,
+            "memos_capture_verify_timeout_seconds": 0,
+        },
+    })
+    session = agent.build_session_spec(
+        phase="test_run_1", domain="reasoning", split="test",
+        task={"name": "omni_2"}, trial=1,
+    )
+    agent.prepare_task(
+        {"name": "omni_2"},
+        {"workspace_dir": str(tmp_path / "workspace-test")},
+        session,
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="capture was not persisted"):
+            agent.call("test prompt", session, timeout=5)
     finally:
         agent.cleanup_task()
 
@@ -630,7 +667,7 @@ def test_hermes_memos_non_timeout_does_not_claim_an_unresolved_episode(monkeypat
     assert not provider._has_unresolved_episode()
 
 
-def test_hermes_memos_turn_end_timeout_retries_without_large_tool_payload(monkeypatch):
+def test_hermes_memos_turn_end_timeout_does_not_issue_a_second_write(monkeypatch):
     module = _load_memos_overlay(monkeypatch)
 
     class RpcTimeout(RuntimeError):
@@ -642,36 +679,52 @@ def test_hermes_memos_turn_end_timeout_retries_without_large_tool_payload(monkey
 
         def request(self, method, params=None, *, timeout=30.0):
             self.calls.append((method, params, timeout))
-            if len(self.calls) == 1:
-                raise RpcTimeout("turn.end did not respond within 30s")
-            return {"episodeId": "episode-real", "traceId": "trace-fallback"}
+            raise RpcTimeout("turn.end did not respond before the long RPC deadline")
 
     provider = module.OmniMemEvalMemOSProvider()
     provider._bridge = FakeBridge()
     provider._episode_id = "episode-real"
 
-    trace_id = provider._turn_end(
-        "task",
-        "final answer",
-        [{"name": "exec", "result": "x" * 1000}],
-        int(time.time() * 1000),
-    )
+    with pytest.raises(RpcTimeout):
+        provider._turn_end(
+            "task",
+            "final answer",
+            [{"name": "exec", "result": "x" * 1000}],
+            int(time.time() * 1000),
+        )
 
-    assert trace_id == "trace-fallback"
-    assert [method for method, _, _ in provider._bridge.calls] == [
-        "turn.end",
-        "turn.end",
-    ]
+    assert len(provider._bridge.calls) == 1
+    method, payload, timeout = provider._bridge.calls[0]
+    assert method == "turn.end"
+    assert len(payload["toolCalls"]) == 1
+    assert payload["requestId"].startswith("hermes-turn-")
+    assert timeout == 75.0
+
+
+def test_hermes_memos_turn_end_uses_a_stable_request_id(monkeypatch):
+    module = _load_memos_overlay(monkeypatch)
+
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, params=None, *, timeout=30.0):
+            self.calls.append((method, params, timeout))
+            return {"episodeId": "episode-real", "traceId": "trace-real"}
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = FakeBridge()
+    provider._episode_id = "episode-real"
+    ts_ms = int(time.time() * 1000)
+
+    provider._turn_end("task", "answer", [], ts_ms)
+    provider._turn_end("task", "answer", [], ts_ms)
+
     first_payload = provider._bridge.calls[0][1]
-    fallback_payload = provider._bridge.calls[1][1]
-    assert len(first_payload["toolCalls"]) == 1
-    assert fallback_payload["episodeId"] == "episode-real"
-    assert fallback_payload["toolCalls"] == []
-    assert fallback_payload["agentText"] == "final answer"
-    assert fallback_payload["contextHints"]["omnimemevalCaptureFallback"] == (
-        "turn_end_rpc_timeout"
-    )
-    assert fallback_payload["contextHints"]["omnimemevalDroppedToolCalls"] == 1
+    second_payload = provider._bridge.calls[1][1]
+    assert first_payload["requestId"] == second_payload["requestId"]
+    assert provider._bridge.calls[0][2] == 75.0
+    assert provider._bridge.calls[1][2] == 75.0
 
 
 def test_hermes_memos_compacts_oversized_tool_payload_before_first_request(monkeypatch):
@@ -706,6 +759,41 @@ def test_hermes_memos_compacts_oversized_tool_payload_before_first_request(monke
         "oversized_tool_transcript"
     )
     assert payload["contextHints"]["omnimemevalDroppedToolCalls"] == len(tool_calls)
+
+
+def test_hermes_memos_stamps_trial_identity_in_episode_context(monkeypatch):
+    context = {
+        "semantic_session_id": "omnimemeval:test_run_1:reasoning:test:omni_2:trial:1",
+        "metadata": {
+            "phase": "test_run_1",
+            "domain": "reasoning",
+            "split": "test",
+            "task": "omni_2",
+            "trial": 1,
+        },
+    }
+    monkeypatch.setenv("OMNIMEMEVAL_AGENT_CONTEXT", json.dumps(context))
+    module = _load_memos_overlay(monkeypatch)
+
+    class FakeBridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, method, params=None, *, timeout=30.0):
+            self.calls.append((method, params, timeout))
+            return {"episodeId": "episode-real", "traceId": "trace-real"}
+
+    provider = module.OmniMemEvalMemOSProvider()
+    provider._bridge = FakeBridge()
+    provider._session_id = "hermes-session-2"
+    provider._episode_id = "episode-real"
+    provider._turn_end("task", "answer", [], int(time.time() * 1000))
+
+    hints = provider._bridge.calls[0][1]["contextHints"]
+    assert hints["omnimemevalTrialKey"] == context["semantic_session_id"]
+    assert hints["omnimemevalPhase"] == "test_run_1"
+    assert hints["omnimemevalDomain"] == "reasoning"
+    assert hints["omnimemevalTask"] == "omni_2"
 
 
 def test_hermes_timeout_terminates_entire_process_group(tmp_path, monkeypatch):

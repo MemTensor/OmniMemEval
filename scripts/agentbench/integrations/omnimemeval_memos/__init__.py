@@ -6,19 +6,25 @@ both fast episode routing and slow model-backed retrieval.  If the client-side
 though the provider never receives its id.  Upstream ``sync_turn`` then starts a
 second retrieval before capture and can lose the completed turn entirely.
 
-This wrapper keeps the 30-second RPC limit.  On retrieval timeout it marks the
+This module is a Hermes MemoryProvider and exposes register_memory_provider via
+``register()``.  Keep those discovery markers near the top: Hermes deliberately
+scans only the first 8 KiB of user providers before importing them.
+
+On retrieval timeout the wrapper marks the
 episode id unresolved, skips that duplicate retrieval, and sends ``turn.end``
 with an empty id so the core resolves the canonical open episode by session.
-Oversized tool transcripts are compacted before ``turn.end``; if an otherwise
-normal request times out, capture is retried for the same episode without the
-tool details.  The degraded trace remains explicit in ``contextHints``.  Only
+Oversized tool transcripts are compacted before ``turn.end``.  Every capture
+has a stable request id and uses the long-RPC deadline; a transport timeout is
+surfaced instead of issuing a second, semantically different write.  Only
 evaluation-scoped Hermes homes load this provider; installed MemOS code is not
 modified.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sys
 from typing import Any
 
@@ -53,6 +59,15 @@ class OmniMemEvalMemOSProvider(MemTensorProvider):
     _TOOL_CALL_COUNT_LIMIT = 12
     _TOOL_PAYLOAD_CHAR_LIMIT = 64_000
 
+    @staticmethod
+    def _long_rpc_timeout() -> float:
+        raw = os.environ.get("MEMOS_HERMES_LONG_RPC_TIMEOUT", "")
+        try:
+            timeout = float(raw)
+        except (TypeError, ValueError):
+            return 75.0
+        return timeout if timeout > 0 else 75.0
+
     @property
     def name(self) -> str:
         return "omnimemeval_memos"
@@ -66,6 +81,36 @@ class OmniMemEvalMemOSProvider(MemTensorProvider):
 
     def _has_unresolved_episode(self) -> bool:
         return str(self._episode_id or "").startswith(self._UNRESOLVED_EPISODE_PREFIX)
+
+    @staticmethod
+    def _evaluation_context_hints() -> dict[str, Any]:
+        raw = os.environ.get("OMNIMEMEVAL_AGENT_CONTEXT", "").strip()
+        if not raw:
+            return {}
+        try:
+            context = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(context, dict):
+            return {}
+        metadata = context.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        hints: dict[str, Any] = {}
+        trial_key = str(context.get("semantic_session_id") or "").strip()
+        if trial_key:
+            hints["omnimemevalTrialKey"] = trial_key
+        for source, target in (
+            ("phase", "omnimemevalPhase"),
+            ("domain", "omnimemevalDomain"),
+            ("split", "omnimemevalSplit"),
+            ("task", "omnimemevalTask"),
+            ("trial", "omnimemevalTrial"),
+        ):
+            value = metadata.get(source)
+            if value is not None and str(value).strip():
+                hints[target] = value
+        return hints
 
     @classmethod
     def _tool_payload_is_oversized(cls, tool_calls: list[dict[str, Any]]) -> bool:
@@ -122,6 +167,7 @@ class OmniMemEvalMemOSProvider(MemTensorProvider):
                 "agentIdentity": self._agent_identity,
                 "namespace": self._runtime_namespace(),
                 **self._host_runtime_context(),
+                **self._evaluation_context_hints(),
             },
             "ts": ts_ms,
         }
@@ -141,31 +187,26 @@ class OmniMemEvalMemOSProvider(MemTensorProvider):
                     "omnimemevalDroppedToolCalls": len(clean_tool_calls),
                 },
             }
-        try:
-            result = self._bridge.request("turn.end", payload)
-        except Exception as exc:
-            if not self._is_rpc_timeout(exc):
-                raise
-            if not payload["toolCalls"]:
-                # This request was already compact.  A duplicate would only
-                # queue behind the still-running request and cannot reduce its
-                # payload further.
-                raise
-            # Long tool-heavy Hermes sessions can make MemOS reflection exceed
-            # the upstream 30-second JSON-RPC wait.  Retrying the full payload
-            # repeats the same failure.  Preserve the task and final answer on
-            # the canonical episode, but omit tool details so training can
-            # record an honest degraded trace instead of an empty episode.
-            fallback_payload = {
-                **payload,
-                "toolCalls": [],
-                "contextHints": {
-                    **payload["contextHints"],
-                    "omnimemevalCaptureFallback": "turn_end_rpc_timeout",
-                    "omnimemevalDroppedToolCalls": len(clean_tool_calls),
-                },
-            }
-            result = self._bridge.request("turn.end", fallback_payload)
+        request_material = {
+            "sessionId": self._session_id,
+            "userText": user_content,
+            "agentText": assistant_content,
+            "toolCalls": payload["toolCalls"],
+            "agentThinking": agent_thinking,
+            "ts": ts_ms,
+        }
+        request_digest = hashlib.sha256(
+            json.dumps(
+                request_material,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        payload["requestId"] = f"hermes-turn-{request_digest}"
+        result = self._bridge.request(
+            "turn.end", payload, timeout=self._long_rpc_timeout()
+        )
         if isinstance(result, dict):
             episode_id = str(result.get("episodeId") or "").strip()
             if episode_id:

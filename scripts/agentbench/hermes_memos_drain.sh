@@ -44,7 +44,7 @@ runtime_pids() {
     printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
     args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
     case "$args" in
-      *bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+      *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
     esac
   done
 }
@@ -106,7 +106,23 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   evolution_dead="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status='dead_letter';")"
   embedding_active="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
   embedding_failed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status='failed';")"
-  open_episodes="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status<>'closed';")"
+  # A recent empty topic is intentionally kept open across clean session
+  # closes/restarts so a later related turn can resume it.  It is quiescent,
+  # not unfinished background work.  Open episodes carrying traces/reward are
+  # still blocking: startup recovery must close and evolve those first.
+  blocking_open_episodes="$(sqlite3 -cmd '.timeout 30000' "$db" "
+    SELECT count(*)
+      FROM episodes
+     WHERE status='open'
+       AND (
+         json_array_length(CASE WHEN json_valid(trace_ids_json) THEN trace_ids_json ELSE '[]' END) > 0
+         OR r_task IS NOT NULL
+         OR COALESCE(
+              CASE WHEN json_valid(meta_json) THEN json_extract(meta_json, '$.topicState') END,
+              ''
+            ) NOT IN ('paused', 'interrupted')
+       );
+  ")"
 
   failures=$((evolution_dead + embedding_failed))
   if [ "$failures" -gt 0 ]; then
@@ -120,7 +136,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     exit 1
   fi
 
-  if [ "$evolution_active" -eq 0 ] && [ "$embedding_active" -eq 0 ] && [ "$open_episodes" -eq 0 ]; then
+  if [ "$evolution_active" -eq 0 ] && [ "$embedding_active" -eq 0 ] && [ "$blocking_open_episodes" -eq 0 ]; then
     stable=$((stable + 1))
     [ "$stable" -ge "$quiet_polls" ] && break
   else
@@ -130,7 +146,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
 done
 
 [ "$stable" -ge "$quiet_polls" ] || {
-  echo "Hermes MemOS pipeline did not become idle within ${timeout_seconds}s: evolution_active=$evolution_active embedding_active=$embedding_active open_episodes=$open_episodes" >&2
+  echo "Hermes MemOS pipeline did not become idle within ${timeout_seconds}s: evolution_active=$evolution_active embedding_active=$embedding_active blocking_open_episodes=$blocking_open_episodes" >&2
   exit 1
 }
 test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
@@ -139,4 +155,13 @@ test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
 # already stable, so shutdown cannot abandon a live model or embedding call.
 stop_bridge
 bridge_pid=""
+shutdown_deadline=$((SECONDS + term_timeout))
+while [ "$SECONDS" -lt "$shutdown_deadline" ]; do
+  [ -z "$(runtime_pids)" ] && break
+  sleep 1
+done
+[ -z "$(runtime_pids)" ] || {
+  echo "Hermes MemOS shared runtime did not stop after a clean drain" >&2
+  exit 1
+}
 trap - EXIT INT TERM

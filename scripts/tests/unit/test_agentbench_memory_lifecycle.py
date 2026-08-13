@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -41,7 +42,12 @@ def _config(tmp_path: Path, *, agent: str = "hermes") -> dict:
     }
 
 
-def _lifecycle(tmp_path: Path, config: dict | None = None) -> CommandMemoryLifecycle:
+def _lifecycle(
+    tmp_path: Path,
+    config: dict | None = None,
+    *,
+    parallel: int = 1,
+) -> CommandMemoryLifecycle:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     return CommandMemoryLifecycle(
@@ -50,6 +56,7 @@ def _lifecycle(tmp_path: Path, config: dict | None = None) -> CommandMemoryLifec
         run_dir=run_dir,
         run_id="run-1",
         version="version-1",
+        parallel=parallel,
     )
 
 
@@ -116,12 +123,58 @@ def test_runtime_env_is_rendered_for_adapters_and_restored_exactly(tmp_path, mon
     assert os.environ["HERMES_HOME"] == str(run_home)
     assert os.environ["PLUGIN_HOME"] == str(run_home / "plugin")
     assert os.environ["OMNIMEMEVAL_ORIGINAL_HERMES_HOME"] == str(original_home)
+    assert os.environ["OMNIMEMEVAL_PARALLEL"] == "1"
 
     lifecycle.restore_runtime_env()
 
     assert os.environ["HERMES_HOME"] == str(original_home)
     assert "PLUGIN_HOME" not in os.environ
     assert "OMNIMEMEVAL_ORIGINAL_HERMES_HOME" not in os.environ
+    assert "OMNIMEMEVAL_PARALLEL" not in os.environ
+
+
+def test_runtime_env_exposes_requested_parallelism(tmp_path):
+    lifecycle = _lifecycle(tmp_path, parallel=5)
+
+    assert lifecycle.runtime_env()["OMNIMEMEVAL_PARALLEL"] == "5"
+
+
+def test_phase_session_audit_requires_exact_trial_to_session_mapping(tmp_path):
+    db_path = tmp_path / "memos.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE episodes ("
+        "id TEXT PRIMARY KEY, session_id TEXT, status TEXT, trace_ids_json TEXT, meta_json TEXT);"
+        "CREATE TABLE traces (id TEXT PRIMARY KEY, session_id TEXT, episode_id TEXT);"
+    )
+    expected = {
+        "omnimemeval:train:reasoning:train:task-a:trial:1": "session-a",
+        "omnimemeval:train:reasoning:train:task-b:trial:1": "session-b",
+    }
+    for index, (trial_key, session_id) in enumerate(expected.items()):
+        episode_id = f"episode-{index}"
+        trace_id = f"trace-{index}"
+        conn.execute(
+            "INSERT INTO episodes VALUES (?, ?, 'closed', ?, ?)",
+            (
+                episode_id,
+                session_id,
+                json.dumps([trace_id]),
+                json.dumps({"contextHints": {"omnimemevalTrialKey": trial_key}}),
+            ),
+        )
+        conn.execute("INSERT INTO traces VALUES (?, ?, ?)", (trace_id, session_id, episode_id))
+    conn.commit()
+    conn.close()
+
+    lifecycle = _lifecycle(tmp_path)
+    lifecycle.audit_phase_sessions(db_path, expected)
+
+    with pytest.raises(RuntimeError, match="session audit"):
+        lifecycle.audit_phase_sessions(
+            db_path,
+            {**expected, "omnimemeval:train:reasoning:train:task-c:trial:1": "session-c"},
+        )
 
 
 def test_relative_run_dir_is_normalized_before_rendering_runtime_env(tmp_path):

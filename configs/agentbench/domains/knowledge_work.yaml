@@ -11,6 +11,9 @@ eval_api_base: ${EVALUATION_API_BASE}
 eval_api_key: ${EVALUATION_API_KEY}
 eval_model_owner: ${EVALUATION_MODEL_OWNER}
 eval_model_name: ${EVALUATION_MODEL_NAME}
-eval_timeout: ${EVALUATION_TIMEOUT}
+# A 240s qwen3.8-max judge request timed out on a valid long-form artifact in
+# the concurrent 5-task gate. Keep this domain-specific and do not multiply it
+# with provider retries.
+eval_timeout: 360
 eval_max_retries: ${EVALUATION_MAX_RETRIES}
 pass_threshold: 0.6

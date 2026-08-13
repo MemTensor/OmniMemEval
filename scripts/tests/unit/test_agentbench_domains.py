@@ -14,6 +14,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 from agentbench.domains import DOMAIN_REGISTRY, create_domain
 from agentbench.domains.code_implementation.livecode import _extract_code_from_text
+from agentbench.domains.software_engineering import swebench
 from agentbench.agents.openclaw import OpenClawAgentAdapter
 
 
@@ -113,6 +114,26 @@ def test_knowledge_work_populates_framework_workspace(tmp_path: Path):
 
     assert Path(env_info["workspace_dir"]) == workspace
     assert workspace.is_dir()
+
+
+def test_swe_setup_disables_interactive_pagers(monkeypatch):
+    commands = []
+    monkeypatch.setattr(swebench, "_create_started_container", lambda *_: "container-id")
+    monkeypatch.setattr(swebench, "setup_container_tmux", lambda *_: None)
+    monkeypatch.setattr(swebench, "create_wrapper_script", lambda *_: "/tmp/wrapper")
+    monkeypatch.setattr(
+        swebench,
+        "_docker_exec_in_tmux",
+        lambda _container, command, timeout=30: commands.append(command),
+    )
+
+    adapter = swebench.SWEBenchAdapter({})
+    monkeypatch.setattr(adapter, "_get_test_spec", lambda *_: object())
+    env_info = adapter.setup({"name": "django__django-10880"}, "hermes", 1)
+
+    assert env_info["container_name"] == "swebench-hermes-django__django-10880-t1"
+    assert any("GIT_PAGER=cat" in command for command in commands)
+    assert any("PAGER=cat" in command for command in commands)
 
 
 def test_code_implementation_extracts_last_valid_python_block():

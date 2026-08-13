@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +18,34 @@ from agentbench.domains import create_domain
 from agentbench.memory_lifecycle import CommandMemoryLifecycle
 from agentbench.plugin_feedback import normalize_plugin_feedback_backend
 from agentbench.runner import assert_phase_succeeded, run_phase
+
+
+_TRIAL_RESULT_DIR_RE = re.compile(r".+__trial_\d+$")
+
+
+def _phase_trial_session_mapping(phase_dir: Path) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for result_file in sorted(phase_dir.glob("*/result.json")):
+        if not _TRIAL_RESULT_DIR_RE.fullmatch(result_file.parent.name):
+            continue
+        payload = json.loads(result_file.read_text(encoding="utf-8"))
+        session = payload.get("session") or {}
+        agent_result = payload.get("agent_result") or {}
+        trial_key = str(session.get("semantic_session_id") or "").strip()
+        session_id = str(agent_result.get("hermes_session_id") or "").strip()
+        if not trial_key or not session_id:
+            raise RuntimeError(
+                f"Hermes MemOS phase audit cannot resolve trial/session identity: {result_file}"
+            )
+        previous = mapping.setdefault(trial_key, session_id)
+        if previous != session_id:
+            raise RuntimeError(
+                f"Hermes MemOS phase audit found conflicting sessions for {trial_key}: "
+                f"{previous} vs {session_id}"
+            )
+    if not mapping:
+        raise RuntimeError(f"Hermes MemOS phase audit found no trial results in {phase_dir}")
+    return mapping
 
 
 def _default_domain_config(domain: str) -> Path:
@@ -459,6 +489,7 @@ def main() -> None:
             run_dir=run_dir,
             run_id=version,
             version=version,
+            parallel=args.parallel,
         )
         global_snapshot = None
         runtime_env_active = False
@@ -499,6 +530,11 @@ def main() -> None:
                 args.domain,
                 expected_trials=int(train_summary["total_trials"]),
             )
+            if bool(execution_config.get("phase_session_audit", False)):
+                lifecycle.audit_phase_sessions(
+                    lifecycle.runtime_env()["MEMOS_DB"],
+                    _phase_trial_session_mapping(run_dir / "train"),
+                )
             backup_file = lifecycle.backup(args.domain)
 
             for run_no in range(1, args.test_runs + 1):
@@ -517,6 +553,11 @@ def main() -> None:
                     task=args.test_task or args.task,
                 )
                 assert_phase_succeeded(run_dir / phase_name)
+                if bool(execution_config.get("phase_session_audit", False)):
+                    lifecycle.audit_phase_sessions(
+                        lifecycle.runtime_env()["MEMOS_DB"],
+                        _phase_trial_session_mapping(run_dir / phase_name),
+                    )
         except BaseException as exc:
             primary_error = exc
             raise

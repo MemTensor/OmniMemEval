@@ -8,3 +8,4 @@ split_file: ./data/agentbench/swebench/task_split.json
 
 agent_timeout: 1800
 verify_timeout: 1800
+network_timeout: 300

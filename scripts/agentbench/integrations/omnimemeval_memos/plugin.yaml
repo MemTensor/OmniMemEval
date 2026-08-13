@@ -1,0 +1,5 @@
+name: omnimemeval_memos
+version: 1.0.0
+description: "OmniMemEval capture-safe MemOS provider for isolated Hermes runs."
+kind: exclusive
+requires_env: []

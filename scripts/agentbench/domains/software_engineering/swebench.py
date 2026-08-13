@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shlex
+import socket
 import subprocess
 import threading
 import time
@@ -69,10 +70,51 @@ SWE_SETUP_PARALLEL_ENV = "SWE_SETUP_PARALLEL"
 _setup_semaphore_lock = threading.Lock()
 _setup_semaphore: threading.BoundedSemaphore | None = None
 _setup_semaphore_limit: int | None = None
+_network_timeout_lock = threading.Lock()
+_network_timeout_installed = False
 
 
 def _cfg():
     return _ACTIVE_CONFIG
+
+
+def _network_timeout() -> float:
+    raw = os.environ.get("SWE_NETWORK_TIMEOUT") or _cfg().get("network_timeout", 300)
+    try:
+        return max(1.0, float(raw))
+    except (TypeError, ValueError):
+        log.warning("Invalid SWE network timeout %r; using 300s", raw)
+        return 300.0
+
+
+def _install_network_timeouts() -> None:
+    """Bound network calls made inside the upstream SWE-bench harness."""
+    global _network_timeout_installed
+
+    with _network_timeout_lock:
+        if _network_timeout_installed:
+            return
+
+        timeout = _network_timeout()
+        socket.setdefaulttimeout(timeout)
+
+        try:
+            import requests
+        except ImportError:
+            requests = None
+
+        if requests is not None:
+            original_request = requests.sessions.Session.request
+
+            def request_with_default_timeout(self, method, url, **kwargs):
+                if kwargs.get("timeout") is None:
+                    kwargs["timeout"] = timeout
+                return original_request(self, method, url, **kwargs)
+
+            requests.sessions.Session.request = request_with_default_timeout
+
+        _network_timeout_installed = True
+        log.info("SWE network default timeout set to %.0fs", timeout)
 
 
 def _docker_bin() -> str:
@@ -434,6 +476,7 @@ class SWEBenchAdapter(DomainAdapter):
 
     def _get_test_spec(self, instance_id: str) -> TestSpec:
         if instance_id not in self._test_specs:
+            _install_network_timeouts()
             df = self._load_dataset()
             matched = df[df["instance_id"] == instance_id]
             if matched.empty:
@@ -554,8 +597,12 @@ class SWEBenchAdapter(DomainAdapter):
                 setup_container_tmux(container_name)
                 wrapper_path = create_wrapper_script(instance_id, container_name)
 
-                # Activate conda env
+                # Keep commands non-interactive.  In a detached tmux pane Git
+                # may still start `less`; the agent then sees a permanently
+                # running command and can loop on q/C-c until the model API's
+                # repeated-tool-call guard aborts the trial.
                 _docker_exec_in_tmux(container_name,
+                                     "export GIT_PAGER=cat PAGER=cat LESS=-FRX GIT_TERMINAL_PROMPT=0; "
                                      "source /opt/miniconda3/bin/activate && conda activate testbed && cd /testbed")
         except Exception:
             if container_created:

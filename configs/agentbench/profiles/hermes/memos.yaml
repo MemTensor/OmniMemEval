@@ -23,6 +23,19 @@ agent_patch:
     home_links:
       - memos-plugin
   hermes_config_patch:
+    # Long tool-heavy tasks can make the protected tail larger than the
+    # provider's practical context window. Compress earlier and retain a
+    # smaller verbatim tail; give the same qwen endpoint enough time to
+    # summarize before Hermes falls back to an ineffective static marker.
+    compression:
+      enabled: true
+      threshold: 0.35
+      target_ratio: 0.2
+      protect_last_n: 8
+      protect_first_n: 1
+    auxiliary:
+      compression:
+        timeout: 300
     # Keep the user's global platform_toolsets.cli. MemOS is selected through
     # memory.provider; domain-specific tool narrowing belongs to the adapter.
     plugins:

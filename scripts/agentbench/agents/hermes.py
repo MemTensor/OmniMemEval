@@ -441,11 +441,11 @@ class HermesAgentAdapter(AgentAdapter):
             return default
 
     def _memos_capture_verification_enabled(self) -> bool:
-        """Require a durable MemOS episode only for writable train phases."""
+        """Require a durable MemOS episode for every writable MemOS phase."""
         enabled = self._runtime().get("verify_memos_capture", False)
         if isinstance(enabled, str):
             enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(enabled) and self._phase() == "train"
+        return bool(enabled) and self._phase() in {"train", "test"}
 
     @staticmethod
     def _memos_db_path() -> Path | None:
