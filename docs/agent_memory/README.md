@@ -111,7 +111,8 @@ cp env_examples/.env.agent .env.agent
 
 AgentBench loads `.env.agent` by default. `--env FILE` can be used to supply an additional env file. This keeps Agent Memory credentials separate from User Memory backend env files such as `.env.memos` and `.env.mem0`.
 
-Runtime model settings are configured in:
+OpenClaw's repository model settings and the portable Hermes adapter defaults
+are located in:
 
 ```text
 configs/agentbench/agents/{openclaw,hermes}.yaml
@@ -139,11 +140,13 @@ EVALUATION_TIMEOUT=240
 EVALUATION_MAX_RETRIES=3
 ```
 
-Model/provider credentials from `.env.agent` are injected into the selected
-agent configuration. If OpenClaw provider fields are not set there, its adapter
-falls back to values resolvable from `~/.openclaw/openclaw.json`. Hermes starts
-from `~/.hermes/config.yaml` and then applies the settings in
-`configs/agentbench/agents/hermes.yaml` inside the isolated evaluation home.
+OpenClaw model/provider credentials from `.env.agent` are injected into its
+repository configuration. If provider fields are not set there, its adapter
+falls back to values resolvable from `~/.openclaw/openclaw.json`. The repository
+does not pin a Hermes model: Hermes inherits model/provider settings from
+`~/.hermes/config.yaml`. To pin them for a particular benchmark, copy
+`configs/agentbench/agents/hermes.yaml`, add the desired overrides, and pass the
+copy with `--agent-config`.
 
 ## Data Preparation
 
@@ -260,10 +263,10 @@ test -f "${HERMES_HOME:-$HOME/.hermes}/memos-plugin/dist/bridge.cjs"
 test -e "${HERMES_HOME:-$HOME/.hermes}/plugins/memory/memtensor"
 ```
 
-`~/.hermes/memos-plugin/config.yaml` configures MemOS itself. The repository
-`.env.agent` and `configs/agentbench/agents/hermes.yaml` configure the primary
-Hermes model used by this AgentBench run. These settings have different roles,
-and all referenced services and credentials must be usable.
+`~/.hermes/memos-plugin/config.yaml` configures MemOS itself, while
+`~/.hermes/config.yaml` supplies the Hermes model/provider inherited by the
+isolated evaluation homes. These settings have different roles, and all
+referenced services and credentials must be usable.
 
 #### 2. Run a single-domain smoke test
 
@@ -277,7 +280,7 @@ Start with one reasoning train item and one reasoning test item:
   --tasks-per-split 1 \
   --trials 1 \
   --test-runs 1 \
-  --parallel 1 \
+  --parallel 5 \
   --settle-seconds 0
 ```
 
@@ -310,7 +313,7 @@ Run a complete train/test cycle for one domain:
   --version hermes_memos_reasoning_eval \
   --test-runs 1 \
   --trials 1 \
-  --parallel 1
+  --parallel 5
 ```
 
 Run all five domains sequentially:
@@ -322,7 +325,7 @@ Run all five domains sequentially:
   --version hermes_memos_5domain_eval \
   --test-runs 1 \
   --trials 1 \
-  --parallel 1
+  --parallel 5
 ```
 
 Use `--domains reasoning,code_implementation` to run only a subset. Complete
@@ -339,18 +342,20 @@ database:
    creates run-scoped `HERMES_HOME` and `MEMOS_HOME` directories under the
    result directory. It does not clear or overwrite the original
    `~/.hermes/memos-plugin/data/memos.db`.
-2. `profiles/hermes/memos.yaml` creates a temporary Hermes home for each task,
-   loads the `omnimemeval_memos` evaluation provider, and writes mutable state
-   to the run-scoped MemOS SQLite database.
+2. `profiles/hermes/memos.yaml` creates a temporary Hermes home for each task
+   and loads the `omnimemeval_memos` evaluation provider. Per-task stdio
+   proxies connect to one run-scoped shared MemOS runtime, which is the only
+   MemoryCore writer for the run-scoped SQLite database.
 3. After a train task is verified, verifier feedback is sent to the same real
    Hermes session through `hermes chat --resume`. Hermes MemOS captures that
    normal conversation turn, so `structured_submit` defaults to `false`. Do
    not add `--memos-structured-feedback` to this flow.
-4. Every successful train call must produce a closed, non-empty episode in the
-   MemOS database. A successful Hermes CLI exit without durable capture is
-   treated as a technical failure.
-5. After training, the lifecycle waits for episodes to close and drains the
-   embedding and evolution queues. It creates the domain training backup only
+4. Every successful train and test call must produce a closed, non-empty
+   episode in the MemOS database. A successful Hermes CLI exit without durable
+   capture is treated as a technical failure.
+5. After each phase, the lifecycle audits the one-to-one mapping between
+   benchmark trials and Hermes sessions. After training it also drains the
+   embedding and evolution queues, and creates the domain training backup only
    after the SQLite integrity check succeeds.
 6. The same training backup is restored before every test run. After testing,
    finalize, checkpoint, and cleanup prevent accidental state sharing across
@@ -376,14 +381,16 @@ For Hermes + MemOS troubleshooting, inspect these locations first:
   status.
 - `memory_lifecycle.json`: command, timing, and exit status for lifecycle
   stages.
-- `train/<task>__trial_1/result.json` under `agent_result.memos_capture`: the
-  durable Hermes session/episode capture record.
+- `train/<task>__trial_1/result.json` and
+  `test_run_1/<task>__trial_1/result.json` under
+  `agent_result.memos_capture`: the durable Hermes session/episode capture
+  record.
 - `<run_dir>/runtime/hermes/memos-plugin/logs/` while the run is active: bridge,
   embedding, and evolution errors. Cleanup removes this isolated directory, so
   copy these logs while diagnosing an active failure if they must be retained.
-- The Hermes viewer uses port `18800` by default. With
-  `MEMOS_START_DAEMON=auto`, an existing user daemon is left untouched and the
-  evaluation continues headlessly rather than stopping that process.
+- Hermes + MemOS evaluation uses a headless shared runtime and sets
+  `MEMOS_START_DAEMON=0`; it does not start the legacy viewer daemon. Inspect
+  the run-scoped logs and SQLite backup instead.
 
 ## Protocols
 
@@ -519,8 +526,9 @@ Each config declares:
   while memory writes are submitted explicitly after verifier feedback. Hermes
   MemOS instead captures the task and resumed feedback turn automatically
   through its memory provider.
-- `max_parallel`: optional cap for plugins that cannot safely run multiple
-  agent processes against the same local runtime.
+- `execution.max_parallel`: optional cap for a plugin/runtime combination.
+  Hermes + MemOS uses a shared runtime and currently supports up to 5 parallel
+  benchmark trials; larger `--parallel` values are capped to 5.
 - `feedback`: train feedback settings and optional plugin-side structured feedback.
   Use `structured_submit`, `backend`, and `submit_timeout` for generic plugin
   feedback. `backend: memos` uses the MemOS bridge submitter.

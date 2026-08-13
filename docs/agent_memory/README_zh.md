@@ -193,6 +193,9 @@ EVALUATION_MAX_RETRIES=3
 
 - OpenClaw agent 的模型来自 `configs/agentbench/agents/openclaw.yaml`，其中 provider credential 由 `.env.agent` 注入。
 - 若某些 provider 字段未在 `.env.agent` 中配置，adapter 会回退到 `~/.openclaw/openclaw.json` 中可解析的配置。
+- 仓库默认不固定 Hermes 的模型或 provider；Hermes 从 `~/.hermes/config.yaml`
+  继承相关配置。若某次评测必须锁定模型，可复制
+  `configs/agentbench/agents/hermes.yaml`，加入覆盖项后通过 `--agent-config` 指定。
 - memory plugin 协议通过对应的 runtime profile 设置 `runtime.home_mode: isolated_copy` 和 `home_links`，把必要插件目录链接到临时 agent home。
 
 ## 目录结构
@@ -285,9 +288,9 @@ test -f "${HERMES_HOME:-$HOME/.hermes}/memos-plugin/dist/bridge.cjs"
 test -e "${HERMES_HOME:-$HOME/.hermes}/plugins/memory/memtensor"
 ```
 
-其中 `~/.hermes/memos-plugin/config.yaml` 是 MemOS 自身的配置；项目根目录
-`.env.agent` 和 `configs/agentbench/agents/hermes.yaml` 控制本次 AgentBench 使用的
-Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭证可用。
+其中 `~/.hermes/memos-plugin/config.yaml` 是 MemOS 自身的配置；隔离评测 home 使用的
+Hermes 模型和 provider 则继承自 `~/.hermes/config.yaml`。两者用途不同，都需要保证
+所依赖的服务和凭证可用。
 
 #### 2. 先运行单域 smoke
 
@@ -301,7 +304,7 @@ Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭�
   --tasks-per-split 1 \
   --trials 1 \
   --test-runs 1 \
-  --parallel 1 \
+  --parallel 5 \
   --settle-seconds 0
 ```
 
@@ -334,7 +337,7 @@ Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭�
   --version hermes_memos_reasoning_eval \
   --test-runs 1 \
   --trials 1 \
-  --parallel 1
+  --parallel 5
 ```
 
 五域顺序运行：
@@ -346,7 +349,7 @@ Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭�
   --version hermes_memos_5domain_eval \
   --test-runs 1 \
   --trials 1 \
-  --parallel 1
+  --parallel 5
 ```
 
 也可以通过 `--domains reasoning,code_implementation` 只运行指定域。正式运行前
@@ -360,16 +363,18 @@ Hermes 主模型。两者用途不同，都需要保证所依赖的服务和凭�
 1. lifecycle 先备份用户原有的 Hermes MemOS SQLite，并在结果目录下建立隔离的
    run-scoped `HERMES_HOME` 和 `MEMOS_HOME`；不会清空或覆盖原始
    `~/.hermes/memos-plugin/data/memos.db`。
-2. `profiles/hermes/memos.yaml` 为每个任务创建临时 Hermes home，加载
-   `omnimemeval_memos` 评测 provider，并把可变数据写入本次运行的 MemOS SQLite。
+2. `profiles/hermes/memos.yaml` 为每个任务创建临时 Hermes home，并加载
+   `omnimemeval_memos` 评测 provider。每个任务的 stdio proxy 连接同一个 run-scoped
+   shared runtime，该 runtime 是本次运行 SQLite 的唯一 MemoryCore writer。
 3. train task 完成验证后，verifier feedback 通过 `hermes chat --resume` 发送到同一个
    真实 Hermes session。Hermes MemOS 默认依靠这个正常对话 turn 捕获 feedback，
    因此 lifecycle 中 `structured_submit` 默认为 `false`，不要为该流程额外开启
    `--memos-structured-feedback`。
-4. 每个成功的 train 调用都必须在 MemOS DB 中形成已关闭且非空的 episode；只返回
-   Hermes CLI 成功但没有持久化记忆，会被视为技术失败。
-5. train 结束后，lifecycle 等待 episode 关闭，并排空 embedding/evolution 队列；
-   SQLite 完整性检查通过后才生成当前域的训练备份。
+4. 每个成功的 train 和 test 调用都必须在 MemOS DB 中形成已关闭且非空的 episode；
+   只返回 Hermes CLI 成功但没有持久化记忆，会被视为技术失败。
+5. 每个 phase 结束后，lifecycle 都会审计 benchmark trial 与 Hermes session 的一一
+   对应关系；train 结束后还会排空 embedding/evolution 队列，SQLite 完整性检查通过
+   后才生成当前域的训练备份。
 6. 每轮 test 前恢复同一份训练备份，再运行 test split。test 完成后执行 finalize、
    checkpoint 和 cleanup，避免不同域或重复测试之间共享意外状态。
 
@@ -391,12 +396,14 @@ results/agentbench/hermes-memos-hermes_memos_reasoning_eval-reasoning/
 
 - `memory_lifecycle.log`：validate、clear、settle、backup、restore 和 cleanup 是否成功。
 - `memory_lifecycle.json`：各生命周期阶段的命令、时间和退出状态。
-- `train/<task>__trial_1/result.json` 中的 `agent_result.memos_capture`：是否记录了
+- `train/<task>__trial_1/result.json` 和
+  `test_run_1/<task>__trial_1/result.json` 中的 `agent_result.memos_capture`：是否记录了
   持久化的 Hermes session/episode。
 - 运行期间的 `<run_dir>/runtime/hermes/memos-plugin/logs/`：bridge、embedding 或
   evolution 的详细错误。cleanup 后该隔离目录会被删除，应在失败现场先保留日志。
-- Hermes viewer 默认端口为 `18800`。`MEMOS_START_DAEMON=auto` 时若端口已被用户
-  daemon 占用，评测会保留该进程并以 headless 方式继续，不会停止用户 daemon。
+- Hermes + MemOS 评测使用 headless shared runtime，并设置
+  `MEMOS_START_DAEMON=0`，不会启动旧 viewer daemon；排障时应检查 run-scoped 日志和
+  SQLite 备份。
 
 ### `test_only`
 
@@ -525,10 +532,11 @@ plugin slot。测评用户必须先配置目标产品；lifecycle 会在任何�
 - `settle_seconds` 或 `commands.wait_settle`：训练后等待沉淀/进化的逻辑。
 - `modes.train/test` 或 `commands.set_mode_*`：训练/测试时插件读写模式。
 - `commands.clear/backup/restore`：清理、备份、恢复记忆。
-- `execution`：可选生命周期执行策略。MemOS 使用
+- `execution`：可选生命周期执行策略。OpenClaw MemOS 使用
   `capture_mode: manual_after_feedback`，让任务执行可并发，同时在 verifier feedback
-  后显式提交记忆写入。
-- `max_parallel`：可选并发上限，用于不能安全并发启动多个本地 runtime 的插件。
+  后显式提交记忆写入；Hermes MemOS 通过 memory provider 自动捕获任务和 feedback。
+- `execution.max_parallel`：插件/runtime 组合的可选并发上限。Hermes + MemOS 使用
+  shared runtime，目前支持最多 5 个并发 trial；更大的 `--parallel` 会被限制为 5。
 - `feedback`：是否启用 train feedback、timeout，以及插件侧 structured feedback。
 
 以 `memos.yaml` 为例，structured feedback 配置如下：
