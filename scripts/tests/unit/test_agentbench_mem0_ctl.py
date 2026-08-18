@@ -264,3 +264,35 @@ def test_hermes_ingest_uses_mem0_sdk_without_inference(tmp_path, monkeypatch):
     assert captured["command"][0] == "/hermes/python"
     assert "infer=False" in captured["command"][2]
     assert "verified construction" in captured["input"]
+
+
+def test_hermes_training_memories_excludes_retry_and_nested_results(tmp_path):
+    train_dir = tmp_path / "train"
+
+    def write_result(relative_dir: str, task_name: str) -> None:
+        result_dir = train_dir / relative_dir
+        result_dir.mkdir(parents=True)
+        (result_dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "task_name": task_name,
+                    "domain": "reasoning",
+                    "agent_result": {
+                        "completion_status": "completed",
+                        "response": "answer",
+                    },
+                    "verifier_result": {"reward": 1.0, "expected": "expected"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    write_result("omni_35__trial_1", "final")
+    write_result("omni_35__trial_1_retry1", "retry")
+    write_result("artifacts/nested", "nested")
+
+    records = hermes_mem0_ctl.training_memories(train_dir)
+
+    assert len(records) == 1
+    assert "case final" in records[0]
+    assert "case retry" not in records[0]

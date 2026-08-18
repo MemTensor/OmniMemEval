@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Run-scoped lifecycle control for Hermes' local Mem0 OSS provider."""
+"""Run-scoped lifecycle control for Hermes' Mem0 OSS provider."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +81,116 @@ def collection_name(value: dict[str, Any] | None = None) -> str:
     return str(settings.get("collection_name") or "mem0")
 
 
+def qdrant_url(value: dict[str, Any] | None = None) -> str:
+    value = value or config()
+    settings = ((((value.get("oss") or {}).get("vector_store") or {}).get("config") or {}))
+    return str(settings.get("url") or "").rstrip("/")
+
+
+def remote_qdrant() -> bool:
+    return bool(qdrant_url())
+
+
+def request(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    allow_404: bool = False,
+) -> dict[str, Any]:
+    base = qdrant_url()
+    if not base:
+        raise RuntimeError("remote Qdrant URL is not configured")
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        base + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        if allow_404 and exc.code == 404:
+            return {}
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"{method} {path} failed: HTTP {exc.code}: {detail[:2000]}"
+        ) from exc
+    value = json.loads(raw) if raw else {}
+    if isinstance(value, dict) and value.get("status") not in (None, "ok"):
+        raise RuntimeError(f"Qdrant request failed: {value}")
+    return value
+
+
+def collections() -> set[str]:
+    value = request("GET", "/collections")
+    return {
+        str(item["name"])
+        for item in ((value.get("result") or {}).get("collections") or [])
+        if isinstance(item, dict) and item.get("name")
+    }
+
+
+def managed_collections() -> list[str]:
+    primary = collection_name()
+    available = collections()
+    return [name for name in (primary, f"{primary}_entities") if name in available]
+
+
+def user_filter() -> dict[str, Any]:
+    return {
+        "must": [{"key": "user_id", "match": {"value": eval_user_id()}}]
+    }
+
+
+def scroll_all(collection: str, *, vectors: bool) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    offset: Any | None = None
+    while True:
+        payload: dict[str, Any] = {
+            "filter": user_filter(),
+            "limit": 100,
+            "with_payload": True,
+            "with_vector": vectors,
+        }
+        if offset is not None:
+            payload["offset"] = offset
+        value = request(
+            "POST",
+            f"/collections/{urllib.parse.quote(collection, safe='')}/points/scroll",
+            payload,
+        )
+        page = value.get("result") or {}
+        points = page.get("points") or []
+        result.extend(item for item in points if isinstance(item, dict))
+        offset = page.get("next_page_offset")
+        if offset is None or not points:
+            return result
+
+
+def remote_counts() -> dict[str, int]:
+    return {name: len(scroll_all(name, vectors=False)) for name in managed_collections()}
+
+
+def delete_user_points(collection: str) -> None:
+    request(
+        "POST",
+        f"/collections/{urllib.parse.quote(collection, safe='')}/points/delete?wait=true",
+        {"filter": user_filter()},
+    )
+
+
+def upsert(collection: str, points: list[dict[str, Any]]) -> None:
+    for offset in range(0, len(points), 100):
+        request(
+            "PUT",
+            f"/collections/{urllib.parse.quote(collection, safe='')}/points?wait=true",
+            {"points": points[offset : offset + 100]},
+        )
+
+
 def hermes_python() -> str:
     value = os.environ.get("HERMES_PYTHON") or "/usr/local/lib/hermes-agent/venv/bin/python"
     if not Path(value).is_file():
@@ -90,13 +204,20 @@ def prepare() -> None:
         raise RuntimeError("Hermes Mem0 lifecycle currently requires OSS mode")
     vector = ((value.get("oss") or {}).get("vector_store") or {})
     if str(vector.get("provider") or "").lower() != "qdrant":
-        raise RuntimeError("Hermes Mem0 lifecycle currently requires local Qdrant")
+        raise RuntimeError("Hermes Mem0 lifecycle currently requires Qdrant")
     settings = vector.setdefault("config", {})
-    if "url" in settings and not settings.get("path"):
-        raise RuntimeError("Hermes Mem0 lifecycle requires a local Qdrant path")
+    endpoint = str(os.environ.get("HERMES_MEM0_QDRANT_URL") or "").rstrip("/")
     value["user_id"] = eval_user_id()
     value["agent_id"] = f"omnimemeval-{os.environ.get('MEM0_EVAL_AGENT_ID', 'hermes')}"
-    settings["path"] = str(qdrant_path())
+    if endpoint:
+        settings.pop("path", None)
+        settings["url"] = endpoint
+        with urllib.request.urlopen(endpoint + "/collections", timeout=10) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"Qdrant health returned HTTP {response.status}")
+    else:
+        settings.pop("url", None)
+        settings["path"] = str(qdrant_path())
     config_path().write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -107,7 +228,7 @@ def prepare() -> None:
                 "prepared": "mem0",
                 "user_id": value["user_id"],
                 "agent_id": value["agent_id"],
-                "qdrant_path": settings["path"],
+                "qdrant": settings.get("url") or settings.get("path"),
                 "mem0_dir": str(mem0_dir()),
             }
         )
@@ -121,7 +242,9 @@ def _clip(value: Any, limit: int = 4000) -> str:
 
 def training_memories(train_dir: Path) -> list[str]:
     records: list[str] = []
-    for result_path in sorted(train_dir.rglob("result.json")):
+    for result_path in sorted(train_dir.glob("*/result.json")):
+        if re.fullmatch(r".+__trial_\d+", result_path.parent.name) is None:
+            continue
         result = json.loads(result_path.read_text(encoding="utf-8"))
         agent_result = result.get("agent_result") or {}
         feedback_result = result.get("feedback_result") or {}
@@ -170,6 +293,9 @@ for text in json.load(sys.stdin):
         total += len(result)
 print(json.dumps({"ok": True, "training_results": int(sys.argv[2]), "memories": total}))
 """
+    child_env = {**os.environ, "MEM0_DIR": str(mem0_dir())}
+    if not child_env.get("OPENAI_API_KEY") and child_env.get("LLM_API_KEY"):
+        child_env["OPENAI_API_KEY"] = child_env["LLM_API_KEY"]
     completed = subprocess.run(
         [
             hermes_python(),
@@ -184,7 +310,7 @@ print(json.dumps({"ok": True, "training_results": int(sys.argv[2]), "memories": 
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=int(os.environ.get("MEM0_INGEST_TIMEOUT", "900")),
-        env={**os.environ, "MEM0_DIR": str(mem0_dir())},
+        env=child_env,
     )
     if completed.returncode != 0:
         raise RuntimeError(
@@ -198,6 +324,8 @@ print(json.dumps({"ok": True, "training_results": int(sys.argv[2]), "memories": 
 
 
 def count() -> int:
+    if remote_qdrant():
+        return remote_counts().get(collection_name(), 0)
     path = qdrant_path()
     if not path.is_dir():
         return 0
@@ -242,9 +370,17 @@ finally:
 
 def clear() -> None:
     before = count()
-    shutil.rmtree(qdrant_path(), ignore_errors=True)
+    if remote_qdrant():
+        for name in managed_collections():
+            delete_user_points(name)
+        after = count()
+        if after:
+            raise RuntimeError(f"Mem0 clear did not remove run-scoped points: {after}")
+    else:
+        shutil.rmtree(qdrant_path(), ignore_errors=True)
     shutil.rmtree(mem0_dir(), ignore_errors=True)
-    qdrant_path().parent.mkdir(parents=True, exist_ok=True)
+    if not remote_qdrant():
+        qdrant_path().parent.mkdir(parents=True, exist_ok=True)
     mem0_dir().mkdir(parents=True, mode=0o700, exist_ok=True)
     print(json.dumps({"before": before, "after": 0}))
 
@@ -275,8 +411,9 @@ def backup(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
+        is_remote = remote_qdrant()
         manifest = {
-            "format": "omnimemeval-hermes-mem0-local-v1",
+            "format": "omnimemeval-hermes-mem0-qdrant-v1" if is_remote else "omnimemeval-hermes-mem0-local-v1",
             "user_id": eval_user_id(),
             "collection": collection_name(),
             "memory_count": memories,
@@ -285,7 +422,15 @@ def backup(path: Path) -> None:
             json.dumps(manifest) + "\n",
             encoding="utf-8",
         )
-        if qdrant_path().is_dir():
+        if is_remote:
+            (root / "qdrant.json").write_text(
+                json.dumps(
+                    {name: scroll_all(name, vectors=True) for name in managed_collections()},
+                    ensure_ascii=False,
+                ) + "\n",
+                encoding="utf-8",
+            )
+        elif qdrant_path().is_dir():
             shutil.copytree(qdrant_path(), root / "qdrant", symlinks=True)
         if mem0_dir().is_dir():
             shutil.copytree(mem0_dir(), root / "mem0", symlinks=True)
@@ -305,11 +450,24 @@ def restore(path: Path) -> None:
         with tarfile.open(path, "r:gz") as archive:
             archive.extractall(root, filter="data")
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        if manifest.get("format") != "omnimemeval-hermes-mem0-local-v1":
+        supported = {
+            "omnimemeval-hermes-mem0-local-v1",
+            "omnimemeval-hermes-mem0-qdrant-v1",
+        }
+        if manifest.get("format") not in supported:
             raise RuntimeError(f"unsupported Mem0 backup: {manifest.get('format')!r}")
         if manifest.get("user_id") != eval_user_id():
             raise RuntimeError("Mem0 backup user does not match the current run")
-        if (root / "qdrant").is_dir():
+        if manifest.get("format") == "omnimemeval-hermes-mem0-qdrant-v1":
+            if not remote_qdrant():
+                raise RuntimeError("remote Mem0 backup requires remote Qdrant")
+            payload = json.loads((root / "qdrant.json").read_text(encoding="utf-8"))
+            available = collections()
+            for name, points in payload.items():
+                if name not in available:
+                    raise RuntimeError(f"Mem0 restore collection is missing: {name}")
+                upsert(name, list(points or []))
+        elif (root / "qdrant").is_dir():
             shutil.copytree(root / "qdrant", qdrant_path())
         if (root / "mem0").is_dir():
             shutil.rmtree(mem0_dir(), ignore_errors=True)

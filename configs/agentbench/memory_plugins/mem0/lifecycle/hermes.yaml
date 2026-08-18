@@ -8,8 +8,9 @@ global_backup_file_template: "@backup_dir@/mem0-hermes-user-config-@run_date@-@r
 settle_seconds: 0
 
 execution:
-  # Embedded Qdrant takes an exclusive lock on its local storage directory.
-  max_parallel: 1
+  # The evaluation runtime uses the standalone Qdrant service below, so each
+  # Hermes task process can safely share the run-scoped Mem0 user at c5.
+  max_parallel: 5
 
 feedback:
   enabled: true
@@ -23,6 +24,7 @@ env:
   OMNIMEMEVAL_RUN_DIR: "@run_dir@"
   MEM0_DIR: "@run_dir@/runtime/mem0"
   HERMES_MEM0_QDRANT_PATH: "@run_dir@/runtime/mem0-qdrant"
+  HERMES_MEM0_QDRANT_URL: "http://127.0.0.1:6333"
   MEM0_EVAL_USER_ID: "omnimemeval:@run_id@"
   MEM0_EVAL_AGENT_ID: "hermes"
   MEM0_SETTLE_TIMEOUT: "300"
@@ -32,7 +34,7 @@ env:
 commands:
   validate: |
     "@python@" - "${OMNIMEMEVAL_ORIGINAL_HERMES_HOME:?}" "$HERMES_PYTHON" <<'PY'
-    import json, subprocess, sys
+    import json, subprocess, sys, urllib.request
     from pathlib import Path
     import yaml
     home, hermes_python = Path(sys.argv[1]), Path(sys.argv[2])
@@ -44,8 +46,12 @@ commands:
         raise SystemExit("Hermes Mem0 evaluation currently requires OSS mode")
     vector = ((config.get("oss") or {}).get("vector_store") or {})
     settings = vector.get("config") or {}
-    if str(vector.get("provider") or "").lower() != "qdrant" or not settings.get("path"):
-        raise SystemExit("Hermes Mem0 evaluation requires a local Qdrant path")
+    if str(vector.get("provider") or "").lower() != "qdrant":
+        raise SystemExit("Hermes Mem0 evaluation requires Qdrant")
+    endpoint = "http://127.0.0.1:6333"
+    with urllib.request.urlopen(endpoint + "/collections", timeout=10) as response:
+        if response.status >= 400:
+            raise SystemExit(f"Qdrant health returned HTTP {response.status}")
     if not hermes_python.is_file():
         raise SystemExit(f"Hermes Python does not exist: {hermes_python}")
     subprocess.run(
@@ -75,6 +81,7 @@ commands:
   clear: |
     "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" clear
   wait_settle: |
+    set -eu
     "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" ingest \
       "@run_dir@/train"
     "@python@" "@project_dir@/scripts/agentbench/plugin_lifecycle/hermes_mem0_ctl.py" wait \
