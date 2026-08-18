@@ -19,7 +19,10 @@ env:
   HINDSIGHT_CONFIG: "@run_dir@/runtime/hermes/hindsight/config.json"
   HINDSIGHT_API_URL: "http://127.0.0.1:9177"
   HINDSIGHT_EVAL_BANK_ID: "omnimemeval-@run_id@"
-  MEMORY_FINALIZE_TIMEOUT: "1800"
+  # A full reasoning train split at c5 can enqueue roughly 1,900 retain/batch
+  # operations. The default 30 minutes expires while the final large document
+  # is still making progress, so allow one hour for a fail-closed settle.
+  MEMORY_FINALIZE_TIMEOUT: "3600"
 
 commands:
   validate: |
