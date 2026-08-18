@@ -27,39 +27,85 @@ AgentBench 使用 EverMind（Hugging Face/GitHub namespace: `EverMind-AI`）发�
 - GitHub 项目：`EverMind-AI/EvoAgentBench`
 - EvoAgentBench 覆盖的五个基础 benchmark：BrowseCompPlus、OmniMath、SWE-Bench、LiveCodeBench、GDPVal
 
-数据规模依据 EvoAgentBench 的公开说明整理如下：
+具体任务数量取决于下载时指定的数据 revision。当前数据准备命令使用的公开 `main`
+revision 包含：
 
 | 域 | 基础 benchmark | Train | Test |
 |---|---|---:|---:|
 | `information_retrieval` | BrowseCompPlus | 154 | 65 |
 | `reasoning` | OmniMath | 478 | 100 |
-| `software_engineering` | SWE-Bench | 101 | 26 |
-| `code_implementation` | LiveCodeBench | 97 | 39 |
-| `knowledge_work` | GDPVal | 87 | 58 |
+| `software_engineering` | SWE-Bench | 87 | 56 |
+| `code_implementation` | LiveCodeBench | 182 | 86 |
+| `knowledge_work` | GDPVal | 105 | 60 |
 
 ## 数据准备
 
-以下命令均在仓库根目录执行。首先下载公开数据集：
+`EverMind-AI/EvoAgentBench` 提供任务 split、内含的 OmniMath 题目和 GDPVal
+meta-prompts，但不包含全部上游 benchmark payload。只执行
+`huggingface-cli download EverMind-AI/EvoAgentBench`，不会得到 SWE-Bench
+parquet、LiveCodeBench 测试数据、GDPVal 元数据/参考文件和解密后的
+BrowseComp-Plus 题目。
+
+请在仓库根目录使用统一数据准备命令：
 
 ```bash
-mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
-  --repo-type dataset \
-  --local-dir ./data/agentbench
+python scripts/agentbench/prepare_data.py download --domains all
 ```
 
-下载完成后，数据目录应包含以下任务数据：
+该命令会下载并整理以下上游数据：
+
+| 运行目录 | 上游来源 | 准备内容 |
+|---|---|---|
+| `Reasoning & Problem Decomposition/` | `EverMind-AI/EvoAgentBench` | OmniMath train/test JSONL |
+| `BrowseComp-Plus/` | `Tevatron/browsecomp-plus` | 解密题目和 EvoAgentBench split |
+| `swebench/` | `princeton-nlp/SWE-bench_Verified` | Verified parquet 和 EvoAgentBench split |
+| `livecode/` | `livecodebench/code_generation_lite` | release-v6 原始 JSONL 和 split 任务缓存 |
+| `gdpval/` | `openai/gdpval` | `dataset.json`、参考文件、task-ID 映射、meta-prompts 和 split |
+
+当前公开 `main` 数据准备完成后约占 9 GB；首次冷启动还应为 Hugging Face cache
+额外预留约 6 GB，以上均不包含 SWE-Bench Docker 镜像。如果 Xet 下载不稳定，
+可增加 `--disable-xet`。只准备部分域时可传入逗号分隔列表，例如：
+
+```bash
+python scripts/agentbench/prepare_data.py download \
+  --domains reasoning,software_engineering
+```
+
+准备完成后的运行目录结构为：
 
 ```text
 data/agentbench/
-  BrowseComp-Plus/
-  Reasoning & Problem Decomposition/
-  gdpval/
-  livecode/
-  swebench/
+  BrowseComp-Plus/browsecomp_plus_decrypted.jsonl
+  Reasoning & Problem Decomposition/test_set_100/{train,test}.jsonl
+  gdpval/{dataset.json,clusters.json,meta_prompts/,reference_files/}
+  livecode/{task_split.json,release_v6.json,source/}
+  swebench/{task_split.json,test-00000-of-00001.parquet}
+  prepare_manifest.json
 ```
 
-各域数据路径由 `configs/agentbench/domains/*.yaml` 管理。若采用自定义数据目录，请同步更新相应 domain yaml 中的 `data_path`、`train_file`、`test_file`、`repo_root` 或同类字段。
+命令支持断点续传，并保留已经存在的真实数据目录。如果旧部署使用了指向其他
+EvoAgentBench checkout 的软链接，可以继续使用 `migrate`，也可以通过 `--force`
+只移除这些链接并准备自包含的本地数据：
+
+```bash
+python scripts/agentbench/prepare_data.py migrate \
+  --source /path/to/EvoAgentBench
+
+# 或准备自包含数据：
+python scripts/agentbench/prepare_data.py download --domains all --force
+```
+
+使用以下命令检查五域文件和 split ID 覆盖：
+
+```bash
+python scripts/agentbench/prepare_data.py verify --domains all --deep
+```
+
+GDPVal reference files 默认会完整下载。只有在允许评测首次运行时按需下载的情况下，
+才使用 `--skip-gdpval-references`。
+
+各域数据路径由 `configs/agentbench/domains/*.yaml` 管理。使用自定义目录时，请传入
+`--data-dir`，并同步修改对应 domain YAML。
 
 LiveCodeBench 域依赖官方 verifier 包：
 
@@ -71,12 +117,20 @@ pip install --no-deps -e ./LiveCodeBench
 BrowseComp-Plus dense 检索依赖数据预处理、索引文件以及 embedding 服务配置：
 
 ```bash
-python scripts/agentbench/utils/browsecomp-plus-tools/setup_data.py \
-  --output-dir ./data/agentbench/BrowseComp-Plus \
-  --skip-index
-python scripts/agentbench/utils/browsecomp-plus-tools/build_dense_index.py \
-  --config configs/agentbench/domains/information_retrieval.yaml
+python scripts/agentbench/prepare_data.py download \
+  --domains information_retrieval \
+  --build-ir-index
+
+python scripts/agentbench/prepare_data.py verify \
+  --domains information_retrieval \
+  --require-ir-index \
+  --deep
 ```
+
+使用 `--build-ir-index` 前，先在 `.env.agent` 中配置
+`IR_EMBEDDING_ENDPOINT`、`IR_EMBEDDING_MODEL` 和 `IR_EMBEDDING_API_KEY`。
+openai-compatible 索引必须与评测时使用的 embedding 模型一致，不能直接混用其他模型
+生成的预构建索引。
 
 SWE-Bench 域依赖 Docker daemon，且容器环境需能够访问 PyPI/GitHub。GDPVal 的 PDF/表格任务依赖文档处理工具。Debian/Ubuntu 环境可参考以下命令安装系统依赖：
 

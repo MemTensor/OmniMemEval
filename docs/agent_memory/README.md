@@ -29,15 +29,16 @@ References:
 - GitHub project: `EverMind-AI/EvoAgentBench`
 - Underlying benchmarks: BrowseCompPlus, OmniMath, SWE-Bench, LiveCodeBench, GDPVal
 
-Dataset size:
+The exact split sizes depend on the selected dataset revision. The current
+public `main` revision used by the preparation command contains:
 
 | Domain | Benchmark | Train | Test |
 |---|---|---:|---:|
 | `information_retrieval` | BrowseCompPlus | 154 | 65 |
 | `reasoning` | OmniMath | 478 | 100 |
-| `software_engineering` | SWE-Bench | 101 | 26 |
-| `code_implementation` | LiveCodeBench | 97 | 39 |
-| `knowledge_work` | GDPVal | 87 | 58 |
+| `software_engineering` | SWE-Bench | 87 | 56 |
+| `code_implementation` | LiveCodeBench | 182 | 86 |
+| `knowledge_work` | GDPVal | 105 | 60 |
 
 ## Environment
 
@@ -150,27 +151,77 @@ copy with `--agent-config`.
 
 ## Data Preparation
 
-Run the following commands from the repository root:
+`EverMind-AI/EvoAgentBench` is the source of the task splits, included OmniMath
+rows, and GDPVal meta-prompts. It does not package every upstream benchmark
+payload. In particular, a direct `huggingface-cli download
+EverMind-AI/EvoAgentBench` does not prepare the SWE-Bench parquet,
+LiveCodeBench test data, GDPVal metadata/reference files, or decrypted
+BrowseComp-Plus queries.
+
+Use the repository preparation command from the project root instead:
 
 ```bash
-mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
-  --repo-type dataset \
-  --local-dir ./data/agentbench
+python scripts/agentbench/prepare_data.py download --domains all
 ```
 
-Expected layout:
+This command downloads and normalizes the following sources:
+
+| Runtime directory | Upstream source | Prepared assets |
+|---|---|---|
+| `Reasoning & Problem Decomposition/` | `EverMind-AI/EvoAgentBench` | OmniMath train/test JSONL |
+| `BrowseComp-Plus/` | `Tevatron/browsecomp-plus` | Decrypted queries plus EvoAgentBench split |
+| `swebench/` | `princeton-nlp/SWE-bench_Verified` | Verified parquet plus EvoAgentBench split |
+| `livecode/` | `livecodebench/code_generation_lite` | release-v6 source JSONL and selected-task cache |
+| `gdpval/` | `openai/gdpval` | `dataset.json`, reference files, task-local links, meta-prompts, and split |
+
+The current public `main` payload occupies roughly 9 GB after preparation.
+Allow about 6 GB more for a cold Hugging Face cache, excluding SWE-Bench Docker
+images. If Xet downloads are unstable, add `--disable-xet`. To prepare only
+selected domains, use a comma-separated list, for example:
+
+```bash
+python scripts/agentbench/prepare_data.py download \
+  --domains reasoning,software_engineering
+```
+
+Expected runtime layout:
 
 ```text
 data/agentbench/
-  BrowseComp-Plus/
-  Reasoning & Problem Decomposition/
-  gdpval/
-  livecode/
-  swebench/
+  BrowseComp-Plus/browsecomp_plus_decrypted.jsonl
+  Reasoning & Problem Decomposition/test_set_100/{train,test}.jsonl
+  gdpval/{dataset.json,clusters.json,meta_prompts/,reference_files/}
+  livecode/{task_split.json,release_v6.json,source/}
+  swebench/{task_split.json,test-00000-of-00001.parquet}
+  prepare_manifest.json
 ```
 
-Domain data paths are configured under `configs/agentbench/domains/*.yaml`. If a custom data location is used, update the relevant domain yaml fields.
+The command is resumable. Existing real data directories are preserved. If an
+older deployment contains links into another EvoAgentBench checkout, either
+keep them with the `migrate` command or pass `--force` to replace only those
+links with local downloads:
+
+```bash
+python scripts/agentbench/prepare_data.py migrate \
+  --source /path/to/EvoAgentBench
+
+# Or make data/agentbench self-contained:
+python scripts/agentbench/prepare_data.py download --domains all --force
+```
+
+Verify the prepared data and split coverage with:
+
+```bash
+python scripts/agentbench/prepare_data.py verify --domains all --deep
+```
+
+GDPVal reference files are downloaded by default. Use
+`--skip-gdpval-references` only when on-demand downloads during evaluation are
+acceptable.
+
+Domain data paths are configured under `configs/agentbench/domains/*.yaml`. If
+a custom data location is used, pass `--data-dir` and update the relevant
+domain YAML fields.
 
 LiveCodeBench requires its official verifier package:
 
@@ -182,12 +233,21 @@ pip install --no-deps -e ./LiveCodeBench
 BrowseComp-Plus dense retrieval requires preprocessing, an index, and embedding service configuration:
 
 ```bash
-python scripts/agentbench/utils/browsecomp-plus-tools/setup_data.py \
-  --output-dir ./data/agentbench/BrowseComp-Plus \
-  --skip-index
-python scripts/agentbench/utils/browsecomp-plus-tools/build_dense_index.py \
-  --config configs/agentbench/domains/information_retrieval.yaml
+python scripts/agentbench/prepare_data.py download \
+  --domains information_retrieval \
+  --build-ir-index
+
+python scripts/agentbench/prepare_data.py verify \
+  --domains information_retrieval \
+  --require-ir-index \
+  --deep
 ```
+
+Configure `IR_EMBEDDING_ENDPOINT`, `IR_EMBEDDING_MODEL`, and
+`IR_EMBEDDING_API_KEY` in `.env.agent` before using `--build-ir-index`. The
+configured openai-compatible index must be built with the same embedding model
+used at evaluation time; a prebuilt index from a different model is not
+interchangeable.
 
 SWE-Bench requires Docker. GDPVal requires PDF/Office processing utilities. On Debian/Ubuntu:
 
@@ -203,10 +263,7 @@ Reasoning smoke run:
 
 ```bash
 cp env_examples/.env.agent .env.agent
-mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
-  --repo-type dataset \
-  --local-dir ./data/agentbench
+python scripts/agentbench/prepare_data.py download --domains reasoning
 ./scripts/run_agent_eval.sh \
   --agent openclaw \
   --domain reasoning \

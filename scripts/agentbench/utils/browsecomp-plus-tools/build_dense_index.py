@@ -89,10 +89,16 @@ def load_corpus(builder_cfg: dict[str, Any]) -> Iterable[tuple[str, str]]:
     dataset_name = builder_cfg.get("corpus_dataset", "Tevatron/browsecomp-plus-corpus")
     dataset_split = builder_cfg.get("corpus_split", "train")
     dataset_cache = os.getenv("HF_DATASETS_CACHE") or None
+    corpus_revision = builder_cfg.get("corpus_revision", "main")
 
     from datasets import load_dataset
 
-    ds = load_dataset(dataset_name, split=dataset_split, cache_dir=dataset_cache)
+    ds = load_dataset(
+        dataset_name,
+        split=dataset_split,
+        cache_dir=dataset_cache,
+        revision=corpus_revision,
+    )
     for i, row in enumerate(ds):
         docid = str(row.get(docid_field, i))
         text = str(row.get(text_field, ""))
@@ -129,6 +135,7 @@ def main() -> int:
     parser.add_argument("--output-dir", help="Override index_builder.output_dir.")
     parser.add_argument("--batch-size", type=int, help="Override embedding.batch_size.")
     parser.add_argument("--shard-size", type=int, help="Override index_builder.shard_size.")
+    parser.add_argument("--corpus-revision", help="Override the corpus dataset revision.")
     parser.add_argument("--overwrite", action="store_true", help="Delete existing corpus.shard*.pkl files first.")
     args = parser.parse_args()
 
@@ -140,6 +147,8 @@ def main() -> int:
         embedding_cfg["batch_size"] = args.batch_size
     if args.shard_size:
         builder_cfg["shard_size"] = args.shard_size
+    if args.corpus_revision:
+        builder_cfg["corpus_revision"] = args.corpus_revision
 
     output_dir_raw = args.output_dir or builder_cfg.get("output_dir")
     if not output_dir_raw:
@@ -219,6 +228,7 @@ def main() -> int:
             "corpus_file": builder_cfg.get("corpus_file"),
             "corpus_dataset": builder_cfg.get("corpus_dataset", "Tevatron/browsecomp-plus-corpus"),
             "corpus_split": builder_cfg.get("corpus_split", "train"),
+            "corpus_revision": builder_cfg.get("corpus_revision", "main"),
             "docid_field": builder_cfg.get("docid_field", "docid"),
             "text_field": builder_cfg.get("text_field", "text"),
         },

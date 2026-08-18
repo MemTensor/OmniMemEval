@@ -67,10 +67,7 @@ python data/locomo/prepare_locomo.py
 
 ```bash
 cp env_examples/.env.agent .env.agent
-mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
-  --repo-type dataset \
-  --local-dir ./data/agentbench
+python scripts/agentbench/prepare_data.py download --domains reasoning
 ./scripts/run_agent_eval.sh \
   --agent openclaw \
   --domain reasoning \

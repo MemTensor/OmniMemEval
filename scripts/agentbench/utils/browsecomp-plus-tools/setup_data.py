@@ -52,7 +52,7 @@ def _transform_decrypt(obj, password, skip_keys):
     return obj
 
 
-def decrypt_dataset(output_dir):
+def decrypt_dataset(output_dir, revision="main"):
     """Download and decrypt the BrowseComp-Plus dataset."""
     from datasets import load_dataset
 
@@ -64,7 +64,11 @@ def decrypt_dataset(output_dir):
         return jsonl_path
 
     print("Downloading and decrypting Tevatron/browsecomp-plus dataset...")
-    dataset = load_dataset("Tevatron/browsecomp-plus", split="test")
+    dataset = load_dataset(
+        "Tevatron/browsecomp-plus",
+        split="test",
+        revision=revision,
+    )
 
     with open(jsonl_path, "w", encoding="utf-8") as jf, \
          open(tsv_path, "w", encoding="utf-8") as tf:
@@ -110,13 +114,18 @@ def main():
                         choices=["qwen3-embedding-0.6b", "qwen3-embedding-4b",
                                  "qwen3-embedding-8b", "bm25"],
                         help="Which pre-built index to download")
+    parser.add_argument(
+        "--revision",
+        default="main",
+        help="Tevatron/browsecomp-plus dataset revision.",
+    )
     parser.add_argument("--skip-index", action="store_true",
                         help="Only download and decrypt dataset, skip index download")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    jsonl_path = decrypt_dataset(args.output_dir)
+    jsonl_path = decrypt_dataset(args.output_dir, revision=args.revision)
 
     if not args.skip_index:
         index_dir = download_indexes(args.output_dir, args.index)
