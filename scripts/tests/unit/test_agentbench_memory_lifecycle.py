@@ -216,7 +216,7 @@ def test_memory_phase_settles_before_audit_with_retained_sessions(tmp_path):
         def audit_phase_sessions(self, db_path, expected):
             events.append(("audit", db_path, expected))
 
-    _settle_and_audit_memory_phase(
+    captured = _settle_and_audit_memory_phase(
         lifecycle=FakeLifecycle(),
         execution_config={"phase_session_audit": True},
         domain="reasoning",
@@ -225,6 +225,7 @@ def test_memory_phase_settles_before_audit_with_retained_sessions(tmp_path):
         retained_trials=5,
     )
 
+    assert captured == 1
     assert events == [
         ("settle", "reasoning", 6),
         (
@@ -237,6 +238,88 @@ def test_memory_phase_settles_before_audit_with_retained_sessions(tmp_path):
             },
         ),
     ]
+
+
+def test_memory_phase_excludes_skipped_trial_from_settle_and_audit(tmp_path):
+    phase_dir = tmp_path / "train"
+    trial_dir = phase_dir / "task-a__trial_1"
+    trial_dir.mkdir(parents=True)
+    (trial_dir / "result.json").write_text(
+        json.dumps({
+            "trial_status": "skipped",
+            "skip_reason": "retries_exhausted:timeout",
+            "agent_result": {"completion_status": "timeout"},
+        }),
+        encoding="utf-8",
+    )
+    events = []
+
+    class FakeLifecycle:
+        def runtime_env(self):
+            return {"MEMOS_DB": str(tmp_path / "memos.db")}
+
+        def wait_settle(self, domain, *, expected_trials):
+            events.append(("settle", domain, expected_trials))
+
+        def audit_phase_sessions(self, db_path, expected):
+            events.append(("audit", db_path, expected))
+
+    captured = _settle_and_audit_memory_phase(
+        lifecycle=FakeLifecycle(),
+        execution_config={"phase_session_audit": True},
+        domain="reasoning",
+        phase_dir=phase_dir,
+        phase_trials=1,
+        retained_trials=0,
+    )
+
+    assert captured == 0
+    assert events == [("settle", "reasoning", 0)]
+
+
+def test_memory_phase_records_non_blocking_session_audit_warning(tmp_path):
+    phase_dir = tmp_path / "train"
+    trial_dir = phase_dir / "task-a__trial_1"
+    trial_dir.mkdir(parents=True)
+    (trial_dir / "result.json").write_text(
+        json.dumps({
+            "session": {
+                "semantic_session_id": (
+                    "omnimemeval:train:reasoning:train:task-a:trial:1"
+                ),
+            },
+            "agent_result": {"hermes_session_id": "session-a"},
+        }),
+        encoding="utf-8",
+    )
+    events = []
+
+    class FakeLifecycle:
+        def runtime_env(self):
+            return {"MEMOS_DB": str(tmp_path / "memos.db")}
+
+        def wait_settle(self, domain, *, expected_trials):
+            events.append(("settle", domain, expected_trials))
+
+        def audit_phase_sessions(self, db_path, expected):
+            events.append(("audit", db_path, expected))
+            raise RuntimeError("extra retry session")
+
+    captured = _settle_and_audit_memory_phase(
+        lifecycle=FakeLifecycle(),
+        execution_config={"phase_session_audit": "warn"},
+        domain="reasoning",
+        phase_dir=phase_dir,
+        phase_trials=1,
+    )
+
+    assert captured == 1
+    assert [event[0] for event in events] == ["settle", "audit"]
+    warning = json.loads(
+        (phase_dir / "memory_session_audit_warning.json").read_text(encoding="utf-8")
+    )
+    assert warning["status"] == "warning"
+    assert "extra retry session" in warning["message"]
 
 
 def test_relative_run_dir_is_normalized_before_rendering_runtime_env(tmp_path):
@@ -271,11 +354,14 @@ def test_finalize_writes_manifest_even_when_finalize_command_fails(tmp_path):
     assert manifest["run_id"] == "run-1"
 
 
-def test_wait_settle_rejects_invalid_expected_trial_count(tmp_path):
+def test_wait_settle_accepts_zero_and_rejects_negative_expected_trial_count(tmp_path):
     lifecycle = _lifecycle(tmp_path)
 
+    lifecycle.wait_settle("reasoning", expected_trials=0)
+    assert (tmp_path / "run" / "expected").read_text(encoding="utf-8") == "0"
+
     with pytest.raises(ValueError, match="expected_trials"):
-        lifecycle.wait_settle("reasoning", expected_trials=0)
+        lifecycle.wait_settle("reasoning", expected_trials=-1)
 
 
 class _FailingFinalizerLifecycle:

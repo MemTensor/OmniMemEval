@@ -236,6 +236,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
         response_chars = len(response_text_for_char_stats(result, result_file.parent))
         item = {
             "trial": int(result.get("trial") or 1),
+            "trial_status": result.get("trial_status") or "completed",
             "reward": reward,
             "elapsed": agent_result.get("elapsed_sec", 0.0),
             "response_chars": response_chars,
@@ -270,6 +271,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
             "trial_results": [
                 {
                     "trial": item["trial"],
+                    "trial_status": item["trial_status"],
                     "reward": item["reward"],
                     "passed": item["reward"] > threshold,
                     "elapsed_sec": item["elapsed"],
@@ -299,6 +301,9 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
     infra_excluded_mean, infra_excluded_se = _rate(infra_task_values)
     all_results = [item for results in task_results.values() for item in results]
     total_trials = len(all_results)
+    skipped_trials = sum(
+        1 for item in all_results if item["trial_status"] == "skipped"
+    )
     failure_counts = {}
     for item in all_results:
         failure_counts[item["failure_class"]] = failure_counts.get(item["failure_class"], 0) + 1
@@ -325,6 +330,7 @@ def build_summary(phase_dir: Path, *, trials: int = 1, pass_at: int | None = Non
         "trials_per_task": trials,
         "pass_at": pass_at,
         "total_trials": total_trials,
+        "skipped_trials": skipped_trials,
         "pass@1": round(pass_mean, 4),
         "pass@1_stderr": round(pass_se, 4),
         f"pass@{pass_at}": round(pass_n_mean, 4),
@@ -390,6 +396,7 @@ def write_phase_report(path: Path, summary: dict) -> None:
         f"- Phase directory: `{summary.get('phase_dir', '')}`",
         f"- Tasks: {summary.get('tasks', 0)}",
         f"- Total trials: {summary.get('total_trials', 0)}",
+        f"- Skipped trials: {summary.get('skipped_trials', 0)}",
         f"- Pass@1: {summary.get('pass@1', 0.0):.4f}",
         f"- Pass@1 stderr: {summary.get('pass@1_stderr', 0.0):.4f}",
         f"- Average pass rate: {summary.get('avg_pass_rate', 0.0):.4f}",

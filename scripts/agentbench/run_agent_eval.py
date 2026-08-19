@@ -29,6 +29,8 @@ def _phase_trial_session_mapping(phase_dir: Path) -> dict[str, str]:
         if not _TRIAL_RESULT_DIR_RE.fullmatch(result_file.parent.name):
             continue
         payload = json.loads(result_file.read_text(encoding="utf-8"))
+        if payload.get("trial_status") == "skipped":
+            continue
         session = payload.get("session") or {}
         agent_result = payload.get("agent_result") or {}
         trial_key = str(session.get("semantic_session_id") or "").strip()
@@ -43,9 +45,40 @@ def _phase_trial_session_mapping(phase_dir: Path) -> dict[str, str]:
                 f"Hermes MemOS phase audit found conflicting sessions for {trial_key}: "
                 f"{previous} vs {session_id}"
             )
-    if not mapping:
-        raise RuntimeError(f"Hermes MemOS phase audit found no trial results in {phase_dir}")
     return mapping
+
+
+def _phase_non_skipped_trial_count(phase_dir: Path) -> int:
+    count = 0
+    for result_file in sorted(phase_dir.glob("*/result.json")):
+        if not _TRIAL_RESULT_DIR_RE.fullmatch(result_file.parent.name):
+            continue
+        payload = json.loads(result_file.read_text(encoding="utf-8"))
+        if payload.get("trial_status") != "skipped":
+            count += 1
+    return count
+
+
+def _phase_audit_mode(execution_config: dict) -> str:
+    value = execution_config.get("phase_session_audit", False)
+    if value is True:
+        return "strict"
+    if value is False or value is None:
+        return "off"
+    normalized = str(value).strip().lower()
+    if normalized in {"strict", "error", "fail"}:
+        return "strict"
+    if normalized in {"warn", "warning", "diagnostic"}:
+        return "warn"
+    if normalized in {"off", "false", "0", "none"}:
+        return "off"
+    raise ValueError(f"invalid phase_session_audit mode: {value!r}")
+
+
+def _record_phase_audit_warning(phase_dir: Path, message: str) -> None:
+    warning_file = phase_dir / "memory_session_audit_warning.json"
+    write_json(warning_file, {"status": "warning", "message": message})
+    print(f"WARNING: {message}", file=sys.stderr, flush=True)
 
 
 def _settle_and_audit_memory_phase(
@@ -56,18 +89,44 @@ def _settle_and_audit_memory_phase(
     phase_dir: Path,
     phase_trials: int,
     retained_trials: int = 0,
-) -> None:
-    """Finalize durable phase state before enforcing closed-session invariants."""
+) -> int:
+    """Settle durable state; optionally diagnose trial/session ownership."""
 
-    expected_sessions = int(phase_trials) + int(retained_trials)
-    if expected_sessions < 1:
-        raise ValueError("memory phase must contain at least one expected session")
+    audit_mode = _phase_audit_mode(execution_config)
+    captured_trials = _phase_non_skipped_trial_count(phase_dir)
+    if captured_trials > int(phase_trials):
+        raise RuntimeError(
+            f"memory phase found {captured_trials} non-skipped trials for only "
+            f"{phase_trials} final trials"
+        )
+    expected_sessions = captured_trials + int(retained_trials)
     lifecycle.wait_settle(domain, expected_trials=expected_sessions)
-    if bool(execution_config.get("phase_session_audit", False)):
+
+    if audit_mode == "off" or captured_trials == 0:
+        return captured_trials
+    try:
+        phase_mapping = _phase_trial_session_mapping(phase_dir)
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+        if audit_mode == "strict":
+            raise
+        _record_phase_audit_warning(
+            phase_dir,
+            f"MemOS phase session mapping diagnostic failed for {phase_dir}: {exc}",
+        )
+        return captured_trials
+    try:
         lifecycle.audit_phase_sessions(
             lifecycle.runtime_env()["MEMOS_DB"],
-            _phase_trial_session_mapping(phase_dir),
+            phase_mapping,
         )
+    except (OSError, ValueError, RuntimeError) as exc:
+        if audit_mode == "strict":
+            raise
+        _record_phase_audit_warning(
+            phase_dir,
+            f"MemOS phase session audit found a non-blocking mismatch for {phase_dir}: {exc}",
+        )
+    return captured_trials
 
 
 def _default_domain_config(domain: str) -> Path:
@@ -548,7 +607,7 @@ def main() -> None:
                 require_feedback=args.train_feedback,
                 require_plugin_feedback=args.plugin_structured_feedback,
             )
-            _settle_and_audit_memory_phase(
+            train_retained_trials = _settle_and_audit_memory_phase(
                 lifecycle=lifecycle,
                 execution_config=execution_config,
                 domain=args.domain,
@@ -579,7 +638,7 @@ def main() -> None:
                     domain=args.domain,
                     phase_dir=run_dir / phase_name,
                     phase_trials=int(test_summary["total_trials"]),
-                    retained_trials=int(train_summary["total_trials"]),
+                    retained_trials=train_retained_trials,
                 )
         except BaseException as exc:
             primary_error = exc

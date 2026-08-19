@@ -99,3 +99,41 @@ def test_phase_validation_accepts_non_infra_verifier_quality_error(tmp_path):
     phase_dir = _write_phase(tmp_path, result)
 
     assert_phase_succeeded(phase_dir)
+
+
+def test_phase_validation_accepts_explicit_retries_exhausted_skip(tmp_path):
+    result = {
+        "agent_result": {"completion_status": "timeout"},
+        "verifier_result": {"reward": 0.0},
+        "feedback_result": {
+            "completion_status": "skipped",
+            "reason": "qa_not_completed",
+        },
+        "trial_status": "skipped",
+        "skip_reason": "retries_exhausted:timeout",
+        "attempts_exhausted": 2,
+    }
+    phase_dir = _write_phase(tmp_path, result)
+
+    assert_phase_succeeded(phase_dir, require_feedback=True)
+
+
+def test_phase_validation_can_enforce_strict_skipped_policy(tmp_path):
+    result = _successful_result()
+    result.update({
+        "trial_status": "skipped",
+        "skip_reason": "retries_exhausted:timeout",
+    })
+    phase_dir = _write_phase(tmp_path, result)
+
+    with pytest.raises(RuntimeError, match="skipped trial"):
+        assert_phase_succeeded(phase_dir, allow_skipped=False)
+
+
+def test_phase_validation_rejects_unclassified_skip(tmp_path):
+    result = _successful_result()
+    result.update({"trial_status": "skipped", "skip_reason": "manual"})
+    phase_dir = _write_phase(tmp_path, result)
+
+    with pytest.raises(RuntimeError, match="skipped trial: manual"):
+        assert_phase_succeeded(phase_dir)

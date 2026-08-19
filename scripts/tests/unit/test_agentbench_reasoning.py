@@ -12,7 +12,7 @@ from agentbench.config import write_json
 from agentbench.config import load_yaml
 from agentbench.domains.reasoning.evaluate import verify_answer
 from agentbench.domains.reasoning.omnimath import ReasoningDomain
-from agentbench.runner import run_task_once
+from agentbench.runner import run_task_once, run_task_with_retry
 from agentbench.session import SessionSpec
 from agentbench.summary import build_summary, classify_failure, response_text_for_char_stats
 
@@ -437,6 +437,151 @@ def test_train_feedback_reuses_same_session(tmp_path):
     saved = json.loads((tmp_path / "task_a__trial_1" / "result.json").read_text())
     assert saved["feedback_prompt"].startswith("Verifier feedback for the previous attempt.")
     assert saved["feedback_result"]["response_chars"] == 10050
+
+
+def test_train_feedback_is_skipped_when_qa_times_out(tmp_path):
+    class TimeoutAgent(_FakeAgent):
+        def call(self, prompt, session, timeout=1):
+            self.calls.append((prompt, session, timeout))
+            return {
+                "response": "",
+                "completion_status": "timeout",
+                "error": "subprocess timed out",
+            }
+
+    agent = TimeoutAgent()
+    result = run_task_once(
+        task={"name": "task_a"},
+        domain=_FakeDomain(),
+        agent=agent,
+        phase_dir=tmp_path,
+        phase="train",
+        split="train",
+        trial=1,
+        attempt=1,
+        args=Namespace(
+            train_feedback=True,
+            feedback_timeout=7,
+            plugin_structured_feedback=True,
+            plugin_feedback_backend="memos",
+        ),
+    )
+
+    assert len(agent.calls) == 1
+    assert "feedback_prompt" not in result
+    assert result["feedback_result"] == {
+        "completion_status": "skipped",
+        "reason": "qa_not_completed",
+        "agent_completion_status": "timeout",
+    }
+    assert result["plugin_feedback_result"] == {
+        "status": "skipped",
+        "reason": "qa_not_completed",
+        "backend": "memos",
+    }
+    assert result["memos_feedback_result"] == result["plugin_feedback_result"]
+
+    saved = json.loads((tmp_path / "task_a__trial_1" / "result.json").read_text())
+    assert saved["feedback_result"] == {
+        **result["feedback_result"],
+        "response_chars": 0,
+    }
+    assert saved["plugin_feedback_result"] == result["plugin_feedback_result"]
+
+
+def test_train_retry_sends_feedback_only_after_completed_qa(tmp_path):
+    agents = []
+
+    class RetryAgent(_FakeAgent):
+        def __init__(self, *, time_out):
+            super().__init__()
+            self.time_out = time_out
+
+        def call(self, prompt, session, timeout=1):
+            self.calls.append((prompt, session, timeout))
+            if self.time_out:
+                return {"response": "", "completion_status": "timeout"}
+            return {"response": "answer", "completion_status": "completed"}
+
+        def should_retry(self, result):
+            if result["agent_result"]["completion_status"] == "timeout":
+                return "timeout"
+            return None
+
+    def agent_factory():
+        agent = RetryAgent(time_out=not agents)
+        agents.append(agent)
+        return agent
+
+    result = run_task_with_retry(
+        task={"name": "task_a"},
+        domain=_FakeDomain(),
+        agent_factory=agent_factory,
+        phase_dir=tmp_path,
+        phase="train",
+        split="train",
+        trial=1,
+        args=Namespace(train_feedback=True, feedback_timeout=7, max_retries=1),
+    )
+
+    assert len(agents) == 2
+    assert len(agents[0].calls) == 1
+    assert len(agents[1].calls) == 2
+    assert result["attempt"] == 2
+    assert result["feedback_result"]["completion_status"] == "completed"
+
+    retry = json.loads(
+        (tmp_path / "task_a__trial_1_retry1" / "result.json").read_text()
+    )
+    assert retry["feedback_result"]["completion_status"] == "skipped"
+    assert retry["feedback_result"]["reason"] == "qa_not_completed"
+
+
+def test_train_retry_exhaustion_marks_trial_skipped_and_does_not_send_feedback(tmp_path):
+    agents = []
+
+    class TimeoutAgent(_FakeAgent):
+        def call(self, prompt, session, timeout=1):
+            self.calls.append((prompt, session, timeout))
+            return {"response": "", "completion_status": "timeout"}
+
+        def should_retry(self, result):
+            return "timeout"
+
+    def agent_factory():
+        agent = TimeoutAgent()
+        agents.append(agent)
+        return agent
+
+    result = run_task_with_retry(
+        task={"name": "task_a"},
+        domain=_FakeDomain(),
+        agent_factory=agent_factory,
+        phase_dir=tmp_path,
+        phase="train",
+        split="train",
+        trial=1,
+        args=Namespace(train_feedback=True, feedback_timeout=7, max_retries=1),
+    )
+
+    assert len(agents) == 2
+    assert [len(agent.calls) for agent in agents] == [1, 1]
+    assert result["trial_status"] == "skipped"
+    assert result["skip_reason"] == "retries_exhausted:timeout"
+    assert result["attempts_exhausted"] == 2
+    assert result["feedback_result"]["reason"] == "qa_not_completed"
+
+    saved = json.loads(
+        (tmp_path / "task_a__trial_1" / "result.json").read_text()
+    )
+    assert saved["agent_result"]["completion_status"] == "timeout"
+    assert saved["trial_status"] == "skipped"
+    assert saved["skip_reason"] == "retries_exhausted:timeout"
+
+    summary = build_summary(tmp_path, trials=1)
+    assert summary["total_trials"] == 1
+    assert summary["skipped_trials"] == 1
+    assert summary["per_task"]["task_a"]["trial_results"][0]["trial_status"] == "skipped"
 
 
 def test_train_plugin_feedback_writes_generic_and_memos_compat_results(tmp_path):

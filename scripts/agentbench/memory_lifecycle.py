@@ -209,8 +209,8 @@ class CommandMemoryLifecycle:
     def wait_settle(self, domain: str, *, expected_trials: int | None = None) -> None:
         extra_env = {}
         if expected_trials is not None:
-            if expected_trials < 1:
-                raise ValueError("expected_trials must be >= 1")
+            if expected_trials < 0:
+                raise ValueError("expected_trials must be >= 0")
             extra_env["OMNIMEMEVAL_EXPECTED_TRIALS"] = str(expected_trials)
         if self._has_stage("wait_settle"):
             self._run_stage("wait_settle", domain, extra_env=extra_env)

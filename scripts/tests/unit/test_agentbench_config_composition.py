@@ -243,16 +243,11 @@ def test_memos_lifecycles_use_private_sqlite_only_backups():
         assert "pgrep" not in "\n".join(config["commands"].values())
 
 
-@pytest.mark.parametrize("agent", ["openclaw", "hermes"])
-def test_memos_settle_gates_distinct_sessions_and_reconciles_rollover_episodes(agent):
+def test_openclaw_memos_settle_gates_distinct_sessions_and_reconciles_rollover_episodes():
+    agent = "openclaw"
     config = load_yaml(_default_memory_plugin_config(agent, "memos"))
     command = config["commands"]["wait_settle"]
-    helper = ""
-    if agent == "hermes":
-        helper = (ROOT / "scripts" / "agentbench" / "hermes_memos_drain.sh").read_text(
-            encoding="utf-8"
-        )
-    drain_command = command + helper
+    drain_command = command
 
     # A long trial may roll over into multiple episodes.  The lifecycle must
     # count stable trial sessions, then require every resulting episode to be
@@ -262,15 +257,26 @@ def test_memos_settle_gates_distinct_sessions_and_reconciles_rollover_episodes(a
     assert 'closed" -eq "$total' in command
     assert "--no-viewer" in drain_command
     assert "settle-reconcile.log" in drain_command
-    reconcile_marker = (
-        'node "$bridge"'
-        if agent == "openclaw"
-        else "hermes_memos_drain.sh"
-    )
+    reconcile_marker = 'node "$bridge"'
     reconcile = command.index(reconcile_marker)
     assert command.index("session_gate ||") < reconcile
     assert reconcile < command.index("settled_gate ||")
     assert "total\" -eq \"$expected" not in command
+
+
+def test_hermes_memos_settle_does_not_block_on_trial_session_cardinality():
+    config = load_yaml(_default_memory_plugin_config("hermes", "memos"))
+    command = config["commands"]["wait_settle"]
+
+    assert config["execution"]["phase_session_audit"] == "warn"
+    assert "count(DISTINCT session_id)" not in command
+    assert "session_gate" not in command
+    assert 'closed" -eq "$total' in command
+    assert 'empty" -eq 0' in command
+    assert "background_gate" in command
+    assert "hermes_memos_drain.sh" in command
+    assert command.index("background_gate") < command.index("hermes_memos_drain.sh")
+    assert command.index("hermes_memos_drain.sh") < command.index("settled_gate ||")
 
 
 def test_openclaw_memos_lifecycle_tracks_shared_runtime_daemon_and_all_bridge_entries():
@@ -331,15 +337,36 @@ def test_hermes_memos_settle_drains_all_background_queues_before_backup():
     assert "status='dead_letter'" in implementation
     assert "terminal background failures" in implementation
     assert "hermes_memos_drain.sh" in command
-    assert 'grep -Fxq "MEMOS_PLUGIN_HOME=$plugin"' in helper
+    assert (
+        'grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null'
+        in helper
+    )
     assert '"${exe##*/}" = "node"' in helper
     assert helper.index("stop_existing_runtime") < helper.index(
         'node "$bridge" --agent=hermes --no-viewer'
     )
-    wait_for_idle = command.index('if settled_gate && [ -z "$(runtime_pids)" ]; then')
+    wait_for_idle = command.index('if background_gate && [ -z "$(runtime_pids)" ]; then')
     terminate_runtime = command.index("for pid in $(runtime_pids); do kill -TERM")
     assert wait_for_idle < terminate_runtime
     assert "Hermes MemOS background work did not settle before shutdown" in command
+
+
+def test_hermes_memos_process_discovery_avoids_proc_environ_races():
+    config = load_yaml(_default_memory_plugin_config("hermes", "memos"))
+    helper = (ROOT / "scripts" / "agentbench" / "hermes_memos_drain.sh").read_text(
+        encoding="utf-8"
+    )
+    implementation = "\n".join(config["commands"].values()) + helper
+
+    # Match only actual Node bridge/runtime commands before reading their
+    # environment.  Passing environ as grep's path keeps an exited PID from
+    # producing a shell redirection error in the lifecycle log.
+    assert 'env="$(tr' not in implementation
+    assert implementation.count(
+        'grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null'
+    ) == 6
+    assert implementation.count('[ "${exe##*/}" = "node" ] || continue') == 6
+    assert '<"$proc/environ" 2>/dev/null' not in implementation
 
 
 def test_hermes_memos_prepares_run_scoped_llm_failure_policy():
@@ -481,6 +508,64 @@ def test_hermes_memos_drain_accepts_paused_empty_topic(tmp_path):
     )
 
     assert completed.returncode == 0, completed.stderr
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT count(*) FROM episodes").fetchone()[0] == 0
+
+
+def test_hermes_memos_settle_accepts_session_trial_count_mismatch(tmp_path):
+    config = load_yaml(_default_memory_plugin_config("hermes", "memos"))
+    command = config["commands"]["wait_settle"]
+    plugin = tmp_path / "memos-plugin"
+    bridge = plugin / "dist" / "bridge.cjs"
+    db = plugin / "data" / "memos.db"
+    bridge.parent.mkdir(parents=True)
+    db.parent.mkdir(parents=True)
+    bridge.write_text(
+        "process.stdin.resume();\n"
+        "const timer = setInterval(() => {}, 1000);\n"
+        "process.on('SIGTERM', () => { clearInterval(timer); process.exit(0); });\n",
+        encoding="utf-8",
+    )
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            "CREATE TABLE episodes ("
+            "id TEXT, session_id TEXT, status TEXT, trace_ids_json TEXT, "
+            "r_task REAL, meta_json TEXT);"
+            "INSERT INTO episodes VALUES "
+            "('ep-a', 'session-a', 'closed', '[\"trace-a\"]', NULL, '{}'),"
+            "('ep-b', 'session-b', 'closed', '[\"trace-b\"]', NULL, '{}');"
+            "CREATE TABLE traces (id TEXT);"
+            "INSERT INTO traces VALUES ('trace-a'), ('trace-b');"
+            "CREATE TABLE api_logs (id TEXT);"
+            "CREATE TABLE evolution_jobs ("
+            "id TEXT, job_type TEXT, status TEXT, attempts INTEGER, "
+            "max_attempts INTEGER, last_error TEXT);"
+            "CREATE TABLE embedding_retry_queue ("
+            "id TEXT, target_kind TEXT, status TEXT, attempts INTEGER, "
+            "max_attempts INTEGER, last_error TEXT);"
+        )
+
+    base_env = os.environ.copy()
+    base_env.update({
+        "MEMOS_PLUGIN_HOME": str(plugin),
+        "MEMOS_DB": str(db),
+        "MEMOS_FINALIZE_TIMEOUT": "5",
+        "MEMOS_DAEMON_TERM_TIMEOUT": "2",
+        "MEMOS_RECONCILE_QUIET_POLLS": "1",
+        "OMNIMEMEVAL_PROJECT_DIR": str(ROOT),
+    })
+    # The database has two sessions. None of these diagnostic expected counts
+    # may block settle as long as the durable episode/queue invariants hold.
+    for expected in (0, 1, 5):
+        env = {**base_env, "OMNIMEMEVAL_EXPECTED_TRIALS": str(expected)}
+        completed = subprocess.run(
+            ["bash", "-c", command],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert completed.returncode == 0, completed.stderr
 
 
 def test_existing_trial_results_detect_only_real_trial_outputs(tmp_path):
@@ -549,7 +634,7 @@ def test_hermes_memos_clear_does_not_terminate_its_lifecycle_shell(tmp_path, mon
         with pytest.raises(RuntimeError, match="stage=wait_settle"):
             lifecycle.wait_settle("reasoning", expected_trials=1)
         assert time.monotonic() - started < 3
-        assert "capture bridges have exited but session gate is unsatisfied" in lifecycle.log_file.read_text()
+        assert "Hermes MemOS DB is missing required pipeline tables" in lifecycle.log_file.read_text()
 
         old_path = os.environ["PATH"]
         no_sqlite_bin = tmp_path / "no-sqlite-bin"

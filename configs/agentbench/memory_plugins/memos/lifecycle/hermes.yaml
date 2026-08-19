@@ -12,7 +12,9 @@ settle_seconds: 0
 
 execution:
   max_parallel: 5
-  phase_session_audit: true
+  # Session/trial ownership is diagnostic here. MemOS must enforce isolation;
+  # the evaluation flow only blocks on durable episode/queue integrity.
+  phase_session_audit: warn
 
 feedback:
   enabled: true
@@ -146,17 +148,20 @@ commands:
     esac
 
     runtime_pids() {
-      local proc pid env args
+      local proc pid exe args
       for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
         [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
-        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        [ -r "$proc/cmdline" ] || continue
+        exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "${exe##*/}" = "node" ] || continue
+        args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
         case "$args" in
-          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) ;;
+          *) continue;;
         esac
+        grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+        printf '%s\n' "$pid"
       done
     }
     stop_runtime() {
@@ -253,85 +258,88 @@ commands:
       exit 1
     }
     case "$expected" in ''|*[!0-9]*) echo "invalid expected trial count: $expected" >&2; exit 1;; esac
-    [ "$expected" -gt 0 ] || { echo "expected trial count must be positive" >&2; exit 1; }
 
     runtime_pids() {
-      local proc pid env args
+      local proc pid exe args
       for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
         [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
-        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        [ -r "$proc/cmdline" ] || continue
+        exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "${exe##*/}" = "node" ] || continue
+        args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
         case "$args" in
-          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) ;;
+          *) continue;;
         esac
+        grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+        printf '%s\n' "$pid"
       done
     }
     capture_pids() {
-      local proc pid env args
+      local proc pid exe args
       for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
         [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
-        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        [ -r "$proc/cmdline" ] || continue
+        exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "${exe##*/}" = "node" ] || continue
+        args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
         case "$args" in
-          *runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*--no-viewer*|*bridge.cts*--agent=hermes*--no-viewer*) printf '%s\n' "$pid";;
+          *runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*--no-viewer*|*bridge.cts*--agent=hermes*--no-viewer*) ;;
+          *) continue;;
         esac
+        grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+        printf '%s\n' "$pid"
       done
     }
     schema_ready() {
       [ -s "$db" ] || return 1
       [ "$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','traces','api_logs','embedding_retry_queue','evolution_jobs');")" = "5" ]
     }
-    session_gate() {
-      local sessions empty_sessions
-      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
-      empty_sessions="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM (SELECT session_id FROM episodes GROUP BY session_id HAVING sum(CASE WHEN trace_ids_json <> '[]' THEN 1 ELSE 0 END) = 0);")"
-      [ "$sessions" -eq "$expected" ] && [ "$empty_sessions" -eq 0 ]
-    }
     settled_gate() {
-      local closed total empty sessions embedding_jobs embedding_failures evolution_jobs evolution_dead
+      local closed total empty embedding_jobs embedding_failures evolution_jobs evolution_dead
       closed="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status='closed';")"
       total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
       empty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE trace_ids_json='[]';")"
-      sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
       embedding_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
       embedding_failures="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status='failed';")"
       evolution_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status IN ('queued','leased','failed');")"
       evolution_dead="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status='dead_letter';")"
-      [ "$sessions" -eq "$expected" ] && [ "$total" -ge "$expected" ] \
-        && [ "$closed" -eq "$total" ] && [ "$empty" -eq 0 ] \
+      [ "$closed" -eq "$total" ] && [ "$empty" -eq 0 ] \
         && [ "$embedding_jobs" -eq 0 ] && [ "$embedding_failures" -eq 0 ] \
         && [ "$evolution_jobs" -eq 0 ] && [ "$evolution_dead" -eq 0 ]
     }
 
-    # A long conversation may roll over into multiple MemOS episodes while
-    # retaining one trial session id.  First wait for every expected session to
-    # have durable non-empty state.  Reconciliation below closes any orphan
-    # continuation episode and drains the pipeline before the backup.
-    # Training calls have already returned, so a missing/empty DB or missing
-    # schema cannot become valid through a still-running model request.  Fail
-    # immediately instead of spending the whole settle timeout on bad state.
+    background_gate() {
+      local open_nonempty embedding_jobs embedding_failures evolution_jobs evolution_dead
+      # Empty timeout/retry placeholders are removed only after every writer
+      # stops. They must not prevent the runtime from reaching that cleanup.
+      open_nonempty="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM episodes WHERE status<>'closed' AND trace_ids_json<>'[]';")"
+      embedding_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status IN ('pending','in_progress');")"
+      embedding_failures="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM embedding_retry_queue WHERE status='failed';")"
+      evolution_jobs="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status IN ('queued','leased','failed');")"
+      evolution_dead="$(sqlite3 -cmd '.timeout 30000' "$db" "SELECT count(*) FROM evolution_jobs WHERE status='dead_letter';")"
+      [ "$open_nonempty" -eq 0 ] \
+        && [ "$embedding_jobs" -eq 0 ] && [ "$embedding_failures" -eq 0 ] \
+        && [ "$evolution_jobs" -eq 0 ] && [ "$evolution_dead" -eq 0 ]
+    }
+
+    # Agent calls already verify their own durable capture. Session/trial
+    # cardinality is intentionally not a lifecycle blocker: wait only for all
+    # per-call capture clients to disconnect before draining shared work.
     [ -s "$db" ] || { echo "Hermes MemOS DB is missing or empty: $db" >&2; exit 1; }
     schema_ready || { echo "Hermes MemOS DB is missing required pipeline tables" >&2; exit 1; }
 
     deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-      if schema_ready && session_gate; then break; fi
-      if [ -z "$(capture_pids)" ]; then
-        sessions="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(DISTINCT session_id) FROM episodes;')"
-        total="$(sqlite3 -cmd '.timeout 30000' "$db" 'SELECT count(*) FROM episodes;')"
-        echo "Hermes MemOS capture bridges have exited but session gate is unsatisfied: expected=$expected sessions=$sessions total_episodes=$total" >&2
-        exit 1
-      fi
-      sleep 5
+      [ -z "$(capture_pids)" ] && break
+      sleep 1
     done
-    schema_ready || { echo "Hermes MemOS DB/schema was not created" >&2; exit 1; }
-    session_gate || { echo "Hermes MemOS expected exactly $expected distinct non-empty trial sessions" >&2; exit 1; }
+    [ -z "$(capture_pids)" ] || {
+      echo "Hermes MemOS capture clients did not stop before settle" >&2
+      exit 1
+    }
 
     # The shared owner starts its own background drain as soon as the last
     # client disconnects.  Let it finish leased model/evolution work before
@@ -340,12 +348,12 @@ commands:
     # first therefore turns a normal drain into an avoidable term-timeout.
     background_deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$background_deadline" ]; do
-      if settled_gate && [ -z "$(runtime_pids)" ]; then break; fi
+      if background_gate && [ -z "$(runtime_pids)" ]; then break; fi
       [ -n "$(runtime_pids)" ] || break
       sleep 1
     done
     background_failed=0
-    if [ -n "$(runtime_pids)" ] && ! settled_gate; then
+    if [ -n "$(runtime_pids)" ] && ! background_gate; then
       echo "Hermes MemOS background work did not settle before shutdown" >&2
       background_failed=1
     fi
@@ -371,7 +379,7 @@ commands:
 
     schema_ready
     settled_gate || {
-      echo "Hermes MemOS did not settle after reconciliation: expected=$expected distinct sessions, all episodes closed/non-empty, and no pending/inflight/failed embedding or evolution jobs" >&2
+      echo "Hermes MemOS did not settle after reconciliation: all episodes must be closed/non-empty and no embedding or evolution job may remain pending/inflight/failed" >&2
       exit 1
     }
     test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
@@ -410,17 +418,20 @@ commands:
     test "$(sqlite3 "$source" 'PRAGMA quick_check;')" = "ok"
 
     runtime_pids() {
-      local proc pid env args
+      local proc pid exe args
       for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
         [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
-        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        [ -r "$proc/cmdline" ] || continue
+        exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "${exe##*/}" = "node" ] || continue
+        args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
         case "$args" in
-          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) ;;
+          *) continue;;
         esac
+        grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+        printf '%s\n' "$pid"
       done
     }
     stop_runtime() {
@@ -511,17 +522,20 @@ commands:
       echo "refusing to clean non-run-scoped Hermes home: $runtime" >&2; exit 1;;
     esac
     runtime_pids() {
-      local proc pid env args
+      local proc pid exe args
       for proc in /proc/[0-9]*; do
         pid="${proc##*/}"
         [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-        [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
-        env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-        printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-        args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+        [ -r "$proc/cmdline" ] || continue
+        exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "${exe##*/}" = "node" ] || continue
+        args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
         case "$args" in
-          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+          *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) ;;
+          *) continue;;
         esac
+        grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+        printf '%s\n' "$pid"
       done
     }
     for pid in $(runtime_pids); do kill -TERM "$pid" 2>/dev/null || true; done

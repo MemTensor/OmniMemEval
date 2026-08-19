@@ -406,14 +406,25 @@ database:
 3. After a train task is verified, verifier feedback is sent to the same real
    Hermes session through `hermes chat --resume`. Hermes MemOS captures that
    normal conversation turn, so `structured_submit` defaults to `false`. Do
-   not add `--memos-structured-feedback` to this flow.
+   not add `--memos-structured-feedback` to this flow. Feedback is sent only
+   when the QA call has `completion_status=completed`; a timeout or error is
+   recorded as `feedback_result.reason=qa_not_completed` and proceeds through
+   the normal task retry policy without resuming the incomplete session. If all
+   retries are exhausted, the trial is recorded as `trial_status=skipped` and
+   evaluation continues with the remaining trials instead of stopping the
+   phase.
 4. Every successful train and test call must durably produce a non-empty trace
    in the MemOS database. The immediate capture gate permits its episode to
    remain open so the verifier and, during training, the resumed feedback turn
    can run before topic finalization. A successful Hermes CLI exit without
    durable capture is treated as a technical failure.
-5. After each phase, the lifecycle settles pending work and audits that every
-   trial maps to exactly one Hermes session with closed, non-empty episodes.
+5. After each phase, the lifecycle settles pending work and requires all
+   retained episodes to be closed and non-empty, all embedding/evolution queues
+   to be idle without terminal failures, and SQLite integrity checks to pass.
+   Trial/session cardinality and exact ownership are recorded as non-blocking
+   diagnostics; MemOS owns enforcement of those isolation invariants. Quiescent
+   zero-trace episodes left by timed-out retry attempts are discarded after all
+   run-scoped writers stop and are never included in the backup.
    After training it also drains the embedding and evolution queues, and
    creates the domain training backup only after the SQLite integrity check
    succeeds.

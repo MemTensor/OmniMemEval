@@ -30,22 +30,23 @@ log="$plugin/logs/settle-reconcile.log"
 bridge_pid=""
 
 runtime_pids() {
-  local proc pid exe env args
+  local proc pid exe args
   for proc in /proc/[0-9]*; do
     pid="${proc##*/}"
     [ "$pid" != "$$" ] && [ "$pid" != "$BASHPID" ] && [ "$pid" != "$PPID" ] || continue
-    [ -r "$proc/environ" ] && [ -r "$proc/cmdline" ] || continue
+    [ -r "$proc/cmdline" ] || continue
     # A lifecycle shell's `sh -c` argv contains the full heredoc, including
     # the text "bridge.cjs --agent=hermes". Require the actual executable to
     # be Node so matching can never terminate this helper or an ancestor shell.
     exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
     [ "${exe##*/}" = "node" ] || continue
-    env="$(tr '\0' '\n' <"$proc/environ" 2>/dev/null || true)"
-    printf '%s\n' "$env" | grep -Fxq "MEMOS_PLUGIN_HOME=$plugin" || continue
-    args="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    args="$(tr '\0' ' ' 2>/dev/null <"$proc/cmdline" || true)"
     case "$args" in
-      *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) printf '%s\n' "$pid";;
+      *runtime-daemon.js*--agent=hermes*|*runtime-stdio-proxy.js*--agent=hermes*|*bridge.cjs*--agent=hermes*|*bridge.cts*--agent=hermes*) ;;
+      *) continue;;
     esac
+    grep -zFxq -- "MEMOS_PLUGIN_HOME=$plugin" "$proc/environ" 2>/dev/null || continue
+    printf '%s\n' "$pid"
   done
 }
 
@@ -164,4 +165,15 @@ done
   echo "Hermes MemOS shared runtime did not stop after a clean drain" >&2
   exit 1
 }
+
+# Failed or timed-out attempts can open a topic before producing any capture.
+# Once every writer has stopped, discard only episodes that contain no trace
+# and no task reward.  They carry no usable memory and must not pollute retry
+# session accounting or the training backup.
+sqlite3 -cmd '.timeout 30000' "$db" "
+  DELETE FROM episodes
+   WHERE trace_ids_json = '[]'
+     AND r_task IS NULL;
+"
+test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = "ok"
 trap - EXIT INT TERM

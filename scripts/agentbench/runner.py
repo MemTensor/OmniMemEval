@@ -22,12 +22,14 @@ def assert_phase_succeeded(
     *,
     require_feedback: bool = False,
     require_plugin_feedback: bool = False,
+    allow_skipped: bool = True,
 ) -> None:
     """Raise when a completed phase contains technical execution failures.
 
-    A zero verifier reward is a valid benchmark outcome and is deliberately not
-    considered a technical failure here.  The gate only prevents a broken
-    train/feedback pipeline from being backed up and used by later test phases.
+    A zero verifier reward and an explicitly skipped retries-exhausted trial are
+    valid terminal outcomes and are deliberately not considered phase failures
+    here.  The gate only prevents an unclassified broken train/feedback pipeline
+    from being backed up and used by later test phases.
     """
 
     phase_config_path = phase_dir / "phase_config.json"
@@ -56,6 +58,15 @@ def assert_phase_succeeded(
             result = json.loads(result_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"{label}: invalid result.json ({exc})")
+            continue
+
+        if result.get("trial_status") == "skipped":
+            skip_reason = str(result.get("skip_reason") or "")
+            if allow_skipped and skip_reason.startswith("retries_exhausted:"):
+                continue
+            failures.append(
+                f"{label}: skipped trial: {skip_reason or 'unknown reason'}"
+            )
             continue
 
         exception_info = result.get("exception_info")
@@ -198,7 +209,31 @@ def run_task_once(
             pass
         verifier_result = domain.verify(task, env_info, trial_dir, agent_result=agent_result)
         result["verifier_result"] = verifier_result
-        if _should_send_train_feedback(args, phase):
+        feedback_requested = _should_send_train_feedback(args, phase)
+        agent_status = str(agent_result.get("completion_status") or "").strip().lower()
+        if feedback_requested and agent_status != "completed":
+            # Feedback is a continuation of a valid QA turn.  Reusing a timed
+            # out or failed session can reopen an incomplete MemOS episode and
+            # turn an infrastructure failure into a misleading revision.
+            result["feedback_result"] = {
+                "completion_status": "skipped",
+                "reason": "qa_not_completed",
+                "agent_completion_status": agent_status or "unknown",
+            }
+            if should_submit_plugin_feedback(args, phase):
+                backend = str(
+                    getattr(args, "plugin_feedback_backend", "none") or "none"
+                ).strip().lower()
+                result["plugin_feedback_result"] = {
+                    "status": "skipped",
+                    "reason": "qa_not_completed",
+                    "backend": backend,
+                }
+                if normalize_plugin_feedback_backend(backend) == "memos":
+                    result["memos_feedback_result"] = dict(
+                        result["plugin_feedback_result"]
+                    )
+        if feedback_requested and agent_status == "completed":
             feedback_prompt = build_feedback_prompt(task_name, verifier_result)
             result["feedback_prompt"] = feedback_prompt
             feedback_timeout = int(getattr(args, "feedback_timeout", 300))
@@ -337,6 +372,8 @@ def run_task_once(
 def run_task_with_retry(task: dict, domain, agent_factory, phase_dir: Path, phase: str, split: str, trial: int, args: Namespace) -> dict:
     max_retries = getattr(args, "max_retries", 0)
     result = {}
+    retry_reason = None
+    attempt = 0
     for attempt in range(1, max_retries + 2):
         agent = agent_factory()
         result = run_task_once(
@@ -360,6 +397,24 @@ def run_task_with_retry(task: dict, domain, agent_factory, phase_dir: Path, phas
                 old_trial.rename(backup)
             continue
         break
+    if retry_reason:
+        result["trial_status"] = "skipped"
+        result["skip_reason"] = f"retries_exhausted:{retry_reason}"
+        result["attempts_exhausted"] = attempt
+        result_path = phase_dir / f"{task['name']}__trial_{trial}" / "result.json"
+        try:
+            saved = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # run_task_once normally persists the complete result in finally.
+            # Preserve the in-memory result if that artifact cannot be read so
+            # the terminal marker never replaces it with a nearly empty file.
+            saved = dict(result)
+        saved.update({
+            "trial_status": result["trial_status"],
+            "skip_reason": result["skip_reason"],
+            "attempts_exhausted": result["attempts_exhausted"],
+        })
+        write_json(result_path, saved)
     return result
 
 

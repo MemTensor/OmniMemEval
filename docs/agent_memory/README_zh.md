@@ -423,14 +423,19 @@ Hermes 模型和 provider 则继承自 `~/.hermes/config.yaml`。两者用途不
 3. train task 完成验证后，verifier feedback 通过 `hermes chat --resume` 发送到同一个
    真实 Hermes session。Hermes MemOS 默认依靠这个正常对话 turn 捕获 feedback，
    因此 lifecycle 中 `structured_submit` 默认为 `false`，不要为该流程额外开启
-   `--memos-structured-feedback`。
+   `--memos-structured-feedback`。只有 QA 的 `completion_status=completed` 时才会发送
+   feedback；timeout 或 error 会记录为 `feedback_result.reason=qa_not_completed`，
+   并进入正常任务重试，不会 resume 未完成的 session。如果全部重试都失败，该 trial 会标记为
+   `trial_status=skipped`，评测继续执行剩余 trial，不会因此停止整个 phase。
 4. 每个成功的 train 和 test 调用都必须在 MemOS DB 中持久化至少一个非空 trace。
    即时 capture gate 允许 episode 暂时为 open，让 verifier 以及训练阶段的 resumed
    feedback 能在 topic finalize 前继续执行；只返回 Hermes CLI 成功但没有持久化记忆，
    会被视为技术失败。
-5. 每个 phase 结束后，lifecycle 会先完成 pending work，再审计每个 benchmark trial
-   只映射到一个 Hermes session，且对应 episode 已 closed 且非空；train 结束后还会
-   排空 embedding/evolution 队列，SQLite 完整性检查通过后才生成当前域的训练备份。
+5. 每个 phase 结束后，lifecycle 会完成 pending work，并强制要求所有保留的 episode 已
+   closed 且非空、embedding/evolution 队列已排空且无终态失败、SQLite 完整性检查通过。
+   trial/session 数量和精确归属只作为非阻断诊断记录；这些隔离约束由 MemOS 插件侧负责
+   根治。所有 run-scoped writer 停止后会删除超时重试留下的零 trace 空 episode，避免其
+   进入训练备份；上述流程完整性检查通过后才生成当前域的训练备份。
 6. 每轮 test 前恢复同一份训练备份，再运行 test split；每个 test phase 也会先 settle，
    再执行 closed-session audit。之后执行 finalize、checkpoint 和 cleanup，避免不同域或
    重复测试之间共享意外状态。
@@ -457,7 +462,7 @@ results/agentbench/hermes-memos-hermes_memos_reasoning_eval-reasoning/
   `test_run_1/<task>__trial_1/result.json` 中的 `agent_result.memos_capture`：是否记录了
   持久化的 Hermes session/episode。单次调用结束时这里只要求已有非空 trace，episode
   可以暂时为 open，以便 verifier 和训练 feedback 继续执行；阶段结束时
-  `wait_settle` 和 session audit 仍会强制要求 episode closed 且非空。
+  `wait_settle` 仍会强制要求 episode closed 且非空；session audit 只记录非阻断告警。
 - 运行期间的 `<run_dir>/runtime/hermes/memos-plugin/logs/`：bridge、embedding 或
   evolution 的详细错误。cleanup 后该隔离目录会被删除，应在失败现场先保留日志。
 - Hermes + MemOS 评测使用 headless shared runtime，并设置
