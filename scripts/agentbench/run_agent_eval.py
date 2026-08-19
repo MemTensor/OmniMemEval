@@ -48,6 +48,28 @@ def _phase_trial_session_mapping(phase_dir: Path) -> dict[str, str]:
     return mapping
 
 
+def _settle_and_audit_memory_phase(
+    *,
+    lifecycle: CommandMemoryLifecycle,
+    execution_config: dict,
+    domain: str,
+    phase_dir: Path,
+    phase_trials: int,
+    retained_trials: int = 0,
+) -> None:
+    """Finalize durable phase state before enforcing closed-session invariants."""
+
+    expected_sessions = int(phase_trials) + int(retained_trials)
+    if expected_sessions < 1:
+        raise ValueError("memory phase must contain at least one expected session")
+    lifecycle.wait_settle(domain, expected_trials=expected_sessions)
+    if bool(execution_config.get("phase_session_audit", False)):
+        lifecycle.audit_phase_sessions(
+            lifecycle.runtime_env()["MEMOS_DB"],
+            _phase_trial_session_mapping(phase_dir),
+        )
+
+
 def _default_domain_config(domain: str) -> Path:
     return ROOT / "configs" / "agentbench" / "domains" / f"{domain}.yaml"
 
@@ -526,15 +548,13 @@ def main() -> None:
                 require_feedback=args.train_feedback,
                 require_plugin_feedback=args.plugin_structured_feedback,
             )
-            lifecycle.wait_settle(
-                args.domain,
-                expected_trials=int(train_summary["total_trials"]),
+            _settle_and_audit_memory_phase(
+                lifecycle=lifecycle,
+                execution_config=execution_config,
+                domain=args.domain,
+                phase_dir=run_dir / "train",
+                phase_trials=int(train_summary["total_trials"]),
             )
-            if bool(execution_config.get("phase_session_audit", False)):
-                lifecycle.audit_phase_sessions(
-                    lifecycle.runtime_env()["MEMOS_DB"],
-                    _phase_trial_session_mapping(run_dir / "train"),
-                )
             backup_file = lifecycle.backup(args.domain)
 
             for run_no in range(1, args.test_runs + 1):
@@ -543,7 +563,7 @@ def main() -> None:
                 # polluting later runs even when a plugin can disable writes.
                 lifecycle.restore(args.domain, backup_file)
                 phase_name = f"test_run_{run_no}"
-                run_phase(
+                test_summary = run_phase(
                     phase=phase_name,
                     split=args.test_split,
                     phase_dir=run_dir / phase_name,
@@ -553,11 +573,14 @@ def main() -> None:
                     task=args.test_task or args.task,
                 )
                 assert_phase_succeeded(run_dir / phase_name)
-                if bool(execution_config.get("phase_session_audit", False)):
-                    lifecycle.audit_phase_sessions(
-                        lifecycle.runtime_env()["MEMOS_DB"],
-                        _phase_trial_session_mapping(run_dir / phase_name),
-                    )
+                _settle_and_audit_memory_phase(
+                    lifecycle=lifecycle,
+                    execution_config=execution_config,
+                    domain=args.domain,
+                    phase_dir=run_dir / phase_name,
+                    phase_trials=int(test_summary["total_trials"]),
+                    retained_trials=int(train_summary["total_trials"]),
+                )
         except BaseException as exc:
             primary_error = exc
             raise

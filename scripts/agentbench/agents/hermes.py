@@ -441,7 +441,7 @@ class HermesAgentAdapter(AgentAdapter):
             return default
 
     def _memos_capture_verification_enabled(self) -> bool:
-        """Require a durable MemOS episode for every writable MemOS phase."""
+        """Require a durable MemOS trace for every writable MemOS phase."""
         enabled = self._runtime().get("verify_memos_capture", False)
         if isinstance(enabled, str):
             enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
@@ -458,7 +458,9 @@ class HermesAgentAdapter(AgentAdapter):
         return None
 
     @staticmethod
-    def _memos_capture_counts(db_path: Path, session_id: str) -> tuple[int, int]:
+    def _memos_capture_counts(
+        db_path: Path, session_id: str
+    ) -> tuple[int, int, int]:
         uri = f"file:{db_path.resolve()}?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=5)
         try:
@@ -467,19 +469,24 @@ class HermesAgentAdapter(AgentAdapter):
                 "WHERE type='table' AND name IN ('episodes','traces')"
             ).fetchone()[0]
             if required != 2:
-                return 0, 0
+                return 0, 0, 0
             row = conn.execute(
                 """
-                SELECT count(DISTINCT e.id), count(t.id)
+                SELECT count(DISTINCT e.id),
+                       count(DISTINCT CASE WHEN e.status = 'closed' THEN e.id END),
+                       count(t.id)
                 FROM episodes AS e
                 LEFT JOIN traces AS t ON t.episode_id = e.id
                 WHERE e.session_id = ?
-                  AND e.status = 'closed'
                   AND e.trace_ids_json <> '[]'
                 """,
                 (session_id,),
             ).fetchone()
-            return int(row[0] or 0), int(row[1] or 0)
+            return (
+                int(row[0] or 0),
+                int(row[1] or 0),
+                int(row[2] or 0),
+            )
         finally:
             conn.close()
 
@@ -499,12 +506,16 @@ class HermesAgentAdapter(AgentAdapter):
         while True:
             if db_path.is_file() and db_path.stat().st_size > 0:
                 try:
-                    episodes, traces = self._memos_capture_counts(db_path, session_id)
-                    if episodes > 0 and traces > 0:
+                    captured, closed, traces = self._memos_capture_counts(
+                        db_path, session_id
+                    )
+                    if captured > 0 and traces > 0:
                         return {
                             "verified": True,
                             "session_id": session_id,
-                            "closed_episodes": episodes,
+                            "captured_episodes": captured,
+                            "closed_episodes": closed,
+                            "open_episodes": max(0, captured - closed),
                             "traces": traces,
                         }
                 except sqlite3.Error as exc:
@@ -512,7 +523,7 @@ class HermesAgentAdapter(AgentAdapter):
             if time.monotonic() >= deadline:
                 detail = f"; last SQLite error: {last_error}" if last_error else ""
                 raise RuntimeError(
-                    "Hermes MemOS capture was not persisted as a closed non-empty episode "
+                    "Hermes MemOS capture was not persisted as a non-empty episode "
                     f"for session {session_id} in {db_path}{detail}"
                 )
             time.sleep(0.2)

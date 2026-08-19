@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from agentbench.memory_lifecycle import CommandMemoryLifecycle
-from agentbench.run_agent_eval import _finish_memory_lifecycle
+from agentbench.run_agent_eval import (
+    _finish_memory_lifecycle,
+    _settle_and_audit_memory_phase,
+)
 
 
 def _config(tmp_path: Path, *, agent: str = "hermes") -> dict:
@@ -175,6 +178,65 @@ def test_phase_session_audit_requires_exact_trial_to_session_mapping(tmp_path):
             db_path,
             {**expected, "omnimemeval:train:reasoning:train:task-c:trial:1": "session-c"},
         )
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE episodes SET status = 'open' WHERE session_id = 'session-a'")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(RuntimeError, match="status=open"):
+        lifecycle.audit_phase_sessions(db_path, expected)
+
+
+def test_memory_phase_settles_before_audit_with_retained_sessions(tmp_path):
+    phase_dir = tmp_path / "test_run_1"
+    trial_dir = phase_dir / "task-a__trial_1"
+    trial_dir.mkdir(parents=True)
+    (trial_dir / "result.json").write_text(
+        json.dumps({
+            "session": {
+                "semantic_session_id": (
+                    "omnimemeval:test_run_1:reasoning:test:task-a:trial:1"
+                ),
+            },
+            "agent_result": {"hermes_session_id": "session-test"},
+        }),
+        encoding="utf-8",
+    )
+
+    events = []
+
+    class FakeLifecycle:
+        def runtime_env(self):
+            return {"MEMOS_DB": str(tmp_path / "memos.db")}
+
+        def wait_settle(self, domain, *, expected_trials):
+            events.append(("settle", domain, expected_trials))
+
+        def audit_phase_sessions(self, db_path, expected):
+            events.append(("audit", db_path, expected))
+
+    _settle_and_audit_memory_phase(
+        lifecycle=FakeLifecycle(),
+        execution_config={"phase_session_audit": True},
+        domain="reasoning",
+        phase_dir=phase_dir,
+        phase_trials=1,
+        retained_trials=5,
+    )
+
+    assert events == [
+        ("settle", "reasoning", 6),
+        (
+            "audit",
+            str(tmp_path / "memos.db"),
+            {
+                "omnimemeval:test_run_1:reasoning:test:task-a:trial:1": (
+                    "session-test"
+                ),
+            },
+        ),
+    ]
 
 
 def test_relative_run_dir_is_normalized_before_rendering_runtime_env(tmp_path):

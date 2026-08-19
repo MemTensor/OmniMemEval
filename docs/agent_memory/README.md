@@ -407,16 +407,20 @@ database:
    Hermes session through `hermes chat --resume`. Hermes MemOS captures that
    normal conversation turn, so `structured_submit` defaults to `false`. Do
    not add `--memos-structured-feedback` to this flow.
-4. Every successful train and test call must produce a closed, non-empty
-   episode in the MemOS database. A successful Hermes CLI exit without durable
-   capture is treated as a technical failure.
-5. After each phase, the lifecycle audits the one-to-one mapping between
-   benchmark trials and Hermes sessions. After training it also drains the
-   embedding and evolution queues, and creates the domain training backup only
-   after the SQLite integrity check succeeds.
-6. The same training backup is restored before every test run. After testing,
-   finalize, checkpoint, and cleanup prevent accidental state sharing across
-   domains or repeated test runs.
+4. Every successful train and test call must durably produce a non-empty trace
+   in the MemOS database. The immediate capture gate permits its episode to
+   remain open so the verifier and, during training, the resumed feedback turn
+   can run before topic finalization. A successful Hermes CLI exit without
+   durable capture is treated as a technical failure.
+5. After each phase, the lifecycle settles pending work and audits that every
+   trial maps to exactly one Hermes session with closed, non-empty episodes.
+   After training it also drains the embedding and evolution queues, and
+   creates the domain training backup only after the SQLite integrity check
+   succeeds.
+6. The same training backup is restored before every test run. Each test phase
+   also settles before its closed-session audit. Finalize, checkpoint, and
+   cleanup then prevent accidental state sharing across domains or repeated
+   test runs.
 
 Example result layout:
 

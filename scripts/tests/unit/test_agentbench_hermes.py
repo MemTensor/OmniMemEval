@@ -126,7 +126,12 @@ while True:
     path.chmod(0o755)
 
 
-def _write_memos_capture(db: Path, session_id: str = "hermes-session-1") -> None:
+def _write_memos_capture(
+    db: Path,
+    session_id: str = "hermes-session-1",
+    *,
+    status: str = "closed",
+) -> None:
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db)
     try:
@@ -135,8 +140,8 @@ def _write_memos_capture(db: Path, session_id: str = "hermes-session-1") -> None
             "CREATE TABLE traces (id TEXT PRIMARY KEY, session_id TEXT, episode_id TEXT);"
         )
         conn.execute(
-            "INSERT INTO episodes VALUES ('episode-1', ?, 'closed', '[\"trace-1\"]')",
-            (session_id,),
+            "INSERT INTO episodes VALUES ('episode-1', ?, ?, '[\"trace-1\"]')",
+            (session_id, status),
         )
         conn.execute(
             "INSERT INTO traces VALUES ('trace-1', ?, 'episode-1')",
@@ -600,7 +605,48 @@ def test_hermes_train_reports_verified_memos_capture(tmp_path, monkeypatch):
     assert result["memos_capture"] == {
         "verified": True,
         "session_id": "hermes-session-1",
+        "captured_episodes": 1,
         "closed_episodes": 1,
+        "open_episodes": 0,
+        "traces": 1,
+    }
+
+
+def test_hermes_capture_gate_accepts_open_episode_with_durable_trace(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    memos_db = tmp_path / "run-memos" / "data" / "memos.db"
+    monkeypatch.setenv("MEMOS_DB", str(memos_db))
+    _write_memos_capture(memos_db, status="open")
+    _write_global_hermes_config(tmp_path)
+    fake_hermes = tmp_path / "hermes"
+    _write_fake_hermes(fake_hermes)
+
+    agent = HermesAgentAdapter({
+        "command": str(fake_hermes),
+        "runtime": {"verify_memos_capture": True},
+    })
+    session = agent.build_session_spec(
+        phase="train", domain="reasoning", split="train",
+        task={"name": "omni_1"}, trial=1,
+    )
+    agent.prepare_task(
+        {"name": "omni_1"},
+        {"workspace_dir": str(tmp_path / "workspace-open")},
+        session,
+    )
+    try:
+        result = agent.call("task prompt", session, timeout=5)
+    finally:
+        agent.cleanup_task()
+
+    assert result["memos_capture"] == {
+        "verified": True,
+        "session_id": "hermes-session-1",
+        "captured_episodes": 1,
+        "closed_episodes": 0,
+        "open_episodes": 1,
         "traces": 1,
     }
 
