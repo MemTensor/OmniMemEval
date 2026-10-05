@@ -114,6 +114,7 @@ adversarial questions and covers 1,540 questions.
 | mem9 | 89.71 | 83.16 | 89.25 | 64.58 | 86.85 | - | [mem9](https://mem9.ai/) |
 | MemoryLake | 96.79 | 91.84 | 91.28 | 85.42 | 94.03 | - | [MemoryLake benchmark](https://www.memorylake.ai/products/compare/benchmarks) |
 | Backboard.io | 89.36 | 75.00 | 91.90 | 91.20 | 90.00 | - | [Backboard LoCoMo repo](https://github.com/Backboard-io/Backboard-Locomo-Benchmark) |
+| past.dev | 95.01 | 93.26 | 93.46 | 75.00 | 93.12 | - | [past.dev benchmarks](https://past.dev/benchmarks) (community-corrected answer keys) |
 
 ## LongMemEval
 
@@ -194,6 +195,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | --- | ---: | ---: | ---: | ---: | --- |
 | Mem0 | 64.1 | 6,719 | 48.6 | 6,914 | [mem0.ai research](https://mem0.ai/research) |
 | Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
+| past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
 
 ## PersonaMem v2
 
