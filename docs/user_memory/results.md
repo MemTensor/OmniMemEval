@@ -120,6 +120,8 @@ adversarial questions and covers 1,540 questions.
 
 LongMemEval evaluates long-term interactive memory across sessions. The
 OmniMemEval public pipeline uses the cleaned LongMemEval-S data by default.
+The `Overall` score is the question-count-weighted mean across all 500
+questions; it is not the unweighted mean of the six category percentages.
 
 | Category | Count | Description |
 | --- | ---: | --- |
