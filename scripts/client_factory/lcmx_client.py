@@ -81,6 +81,8 @@ class LcmxClient:
         LCMX_EMBED_CACHE     – optional SQLite text->vector cache shared with the
                                LCM-X LongMemEval harness
         LCMX_SEARCH_SCOPE_BIAS – optional lcm_recall scope_bias override
+        LCMX_DELIVERY        – "full" (default): full stored message per hit;
+                               "snippet": lcm_recall's 300-char snippet
     """
 
     def __init__(self):
@@ -98,6 +100,9 @@ class LcmxClient:
         self._model = env_str("LCMX_EMBED_MODEL", _DEFAULT_FASTEMBED_MODEL)
         self._scope_bias = env_str("LCMX_SEARCH_SCOPE_BIAS")
         self._top_k_cap = env_int("LCMX_TOPK_CAP", 25, min_value=1)
+        self._delivery = (env_str("LCMX_DELIVERY", "full") or "full").lower()
+        if self._delivery not in ("full", "snippet"):
+            raise ValueError(f"LCMX_DELIVERY must be 'full' or 'snippet', got {self._delivery!r}")
 
         # Import LCM-X exactly the way its own LongMemEval harness does.
         if str(repo) not in sys.path:
@@ -309,6 +314,13 @@ class LcmxClient:
             if self._scope_bias:
                 args["scope_bias"] = float(self._scope_bias)
             payload = json.loads(lcm_tools.lcm_recall(args, engine=engine))
+            # Recall snippets are cut at 300 chars; deliver the full stored
+            # message for message hits (LCMX_DELIVERY=snippet restores the cut).
+            full_rows = {}
+            if self._delivery == "full":
+                ids = [h.get("store_id") for h in payload.get("hits", [])
+                       if isinstance(h.get("store_id"), int)]
+                full_rows = store.get_batch(ids)
         finally:
             vector_store.close()
             dag.close()
@@ -327,9 +339,13 @@ class LcmxClient:
         sessions = self._load_sessions(user_id)
         lines = []
         for hit in payload.get("hits", [])[:top_k]:
-            # Drop the FTS match-highlight markers; keep the stored text.
-            snippet = str(hit.get("snippet") or "").replace(">>>", "").replace("<<<", "")
-            text = " ".join(snippet.split())
+            row = full_rows.get(hit.get("store_id")) if hit.get("kind") != "summary" else None
+            if row and row.get("content"):
+                text = " ".join(str(row["content"]).split())
+            else:
+                # Drop the FTS match-highlight markers; keep the stored text.
+                snippet = str(hit.get("snippet") or "").replace(">>>", "").replace("<<<", "")
+                text = " ".join(snippet.split())
             if not text:
                 continue
             event_time = hit.get("event_time") or (
