@@ -81,6 +81,8 @@ class LcmxClient:
         LCMX_EMBED_CACHE     – optional SQLite text->vector cache shared with the
                                LCM-X LongMemEval harness
         LCMX_SEARCH_SCOPE_BIAS – optional lcm_recall scope_bias override
+        LCMX_CHUNK_POLICY    – LCM-X chunk policy: "conversational" (default; skips
+                               turns under 40 tokens) or "full" (every message)
         LCMX_DELIVERY        – "full" (default): full stored message per hit;
                                "snippet": lcm_recall's 300-char snippet
     """
@@ -101,6 +103,9 @@ class LcmxClient:
         self._scope_bias = env_str("LCMX_SEARCH_SCOPE_BIAS")
         self._top_k_cap = env_int("LCMX_TOPK_CAP", 25, min_value=1)
         self._delivery = (env_str("LCMX_DELIVERY", "full") or "full").lower()
+        self._chunk_policy = (env_str("LCMX_CHUNK_POLICY", "conversational") or "conversational").lower()
+        if self._chunk_policy not in ("conversational", "full"):
+            raise ValueError(f"LCMX_CHUNK_POLICY must be 'conversational' or 'full', got {self._chunk_policy!r}")
         if self._delivery not in ("full", "snippet"):
             raise ValueError(f"LCMX_DELIVERY must be 'full' or 'snippet', got {self._delivery!r}")
 
@@ -266,7 +271,7 @@ class LcmxClient:
                         {"store_id": sid, "role": r["role"], "content": r["content"]}
                         for sid, r in zip(store_ids, rows_in)
                     ]
-                    chunks = list(iter_message_chunks(rows, policy="conversational"))
+                    chunks = list(iter_message_chunks(rows, policy=self._chunk_policy))
                     if chunks:
                         vectors = self._embedder.embed_documents([c.text for c in chunks])
                         for chunk, vector in zip(chunks, vectors):
