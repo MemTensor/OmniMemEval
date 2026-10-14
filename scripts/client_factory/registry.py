@@ -32,6 +32,7 @@ _LIB_CLIENT_REGISTRY = {
     "memorylake":  ("memorylake_client",  "MemoryLakeClient"),
     "backboard":   ("backboard_client",   "BackboardClient"),
     "mem9":        ("mem9_client",        "Mem9Client"),
+    "lcmx":        ("lcmx_client",        "LcmxClient"),
 }
 
 SUPPORTED_LIBS = list(_LIB_CLIENT_REGISTRY.keys())
