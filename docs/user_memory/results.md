@@ -198,6 +198,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | Mem0 | 64.1 | 6,719 | 48.6 | 6,914 | [mem0.ai research](https://mem0.ai/research) |
 | Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
 | past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
+| OpenWay.ai | 72.01 | 4,233 | - | - | [OpenWay.ai BEAM-100K runs](https://github.com/andrei2084k-prog/openway.ai-beam-100k) (OmniMemEval harness at `0b1ea8d`; mean of two runs, 72.06 and 71.96) |
 
 ## PersonaMem v2
 
