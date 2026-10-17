@@ -115,6 +115,7 @@ adversarial questions and covers 1,540 questions.
 | MemoryLake | 96.79 | 91.84 | 91.28 | 85.42 | 94.03 | - | [MemoryLake benchmark](https://www.memorylake.ai/products/compare/benchmarks) |
 | Backboard.io | 89.36 | 75.00 | 91.90 | 91.20 | 90.00 | - | [Backboard LoCoMo repo](https://github.com/Backboard-io/Backboard-Locomo-Benchmark) |
 | past.dev | 95.01 | 93.26 | 93.46 | 75.00 | 93.12 | - | [past.dev benchmarks](https://past.dev/benchmarks) (community-corrected answer keys) |
+| Hojo MemoryEngine | 92.98 | 81.91 | 85.36 | 72.92 | 88.12 | - | [Hojo evaluation details](./hojo_reference_results.md#locomo) |
 
 ## LongMemEval
 
@@ -159,6 +160,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | Hindsight | - | - | - | - | - | - | 94.6 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
 | EverOS | 97.14 | 85.71 | 93.33 | 77.44 | 73.68 | 89.74 | 83.0 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
 | Backboard.io | 97.1 | 98.2 | 90.0 | 91.7 | 91.7 | 93.6 | 93.4 | - | [Backboard LongMemEval repo](https://github.com/Backboard-io/Backboard-longmemEval-results) |
+| Hojo MemoryEngine | - | - | - | - | - | - | 83.18 | - | [Hojo evaluation details](./hojo_reference_results.md#pending-user-reported-figures) |
 
 ## BEAM
 
@@ -198,6 +200,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | Mem0 | 64.1 | 6,719 | 48.6 | 6,914 | [mem0.ai research](https://mem0.ai/research) |
 | Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
 | past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
+| Hojo MemoryEngine | 72.61 | - | 56.35 | - | [Hojo evaluation details](./hojo_reference_results.md#pending-user-reported-figures) |
 
 ## PersonaMem v2
 
@@ -237,6 +240,7 @@ the gold answer; repeated runs are averaged.
 | Backend | Overall | Context Tokens | Source |
 | --- | ---: | ---: | --- |
 | EverOS | 53.25 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
+| Hojo MemoryEngine | 35.14 | - | [Hojo evaluation details](./hojo_reference_results.md#personamem-v2) |
 
 ## HaluMem
 
@@ -275,6 +279,7 @@ multi-hop inference, and dynamic updates.
 | Backend | Overall | Context Tokens | Source |
 | --- | ---: | ---: | --- |
 | EverOS | 93.04 | - | [EverMind](https://evermind.ai/) |
+| Hojo MemoryEngine | 77.04 | - | [Hojo evaluation details](./hojo_reference_results.md#halumem-medium) |
 
 ## Reproduction Notes
 
