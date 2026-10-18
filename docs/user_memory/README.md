@@ -6,7 +6,7 @@
 
 This document covers the User Memory Evaluation track in OmniMemEval. This track evaluates memory backend APIs through a shared benchmark pipeline and a common adapter layer. Users can switch memory backends with `--lib` and compare mainstream memory products, self-hosted memory frameworks, and custom adapters under the same benchmark flow.
 
-The adapter layer covers 14 mainstream memory solutions through 15 adapter entries, including MemOS, Mem0, Zep/Graphiti, Supermemory, EverOS, Letta, Hindsight, Cognee, Viking Memory, Memori, MemMachine, MemoryLake, Backboard.io, and mem9. This track supports five benchmark tasks: LoCoMo, LongMemEval, BEAM, PersonaMem v2, and HaluMem. These tasks cover complementary
+The adapter layer covers 15 mainstream memory solutions through 16 adapter entries, including MemOS, Mem0, Zep/Graphiti, Supermemory, EverOS, Letta, Hindsight, Cognee, Viking Memory, Memori, MemMachine, MemoryLake, Backboard.io, mem9, and LCM-X. This track supports five benchmark tasks: LoCoMo, LongMemEval, BEAM, PersonaMem v2, and HaluMem. These tasks cover complementary
 long-term memory capabilities, including conversation recall, cross-session
 updates, large-scale retrieval, personalization, and robustness under
 hallucination, conflict, and dynamic-update scenarios.
@@ -234,6 +234,7 @@ without changing the benchmark stages, prompt flow, or metric calculation.
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
+| `lcmx` | LCM-X |
 
 ## Benchmarks
 

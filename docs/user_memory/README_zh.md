@@ -6,7 +6,7 @@
 
 本文档说明 OmniMemEval 的 User Memory Evaluation 评测线。该评测线通过统一 benchmark pipeline 和 adapter 层评估 memory backend API。用户可以通过 `--lib` 切换不同 memory backend，在同一套 benchmark 流程下对比主流 memory 产品、自托管 memory framework 和自定义 adapter。
 
-adapter 层通过 15 个入口覆盖 14 种主流 memory 方案，包括 MemOS、Mem0、Zep/Graphiti、Supermemory、EverOS、Letta、Hindsight、Cognee、Viking Memory、Memori、MemMachine、MemoryLake、Backboard.io 和 mem9。该评测线支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 5 个评测任务，覆盖长期记忆系统中几类关键能力：对话记忆、跨 session 更新、超长上下文检索、个性化偏好，以及在
+adapter 层通过 16 个入口覆盖 15 种主流 memory 方案，包括 MemOS、Mem0、Zep/Graphiti、Supermemory、EverOS、Letta、Hindsight、Cognee、Viking Memory、Memori、MemMachine、MemoryLake、Backboard.io、mem9 和 LCM-X。该评测线支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 5 个评测任务，覆盖长期记忆系统中几类关键能力：对话记忆、跨 session 更新、超长上下文检索、个性化偏好，以及在
 幻觉、冲突和动态更新场景下的鲁棒性。
 
 Benchmark 覆盖：
@@ -222,6 +222,7 @@ memory 方案运行同一套评测。
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
+| `lcmx` | LCM-X |
 
 ## Benchmarks
 

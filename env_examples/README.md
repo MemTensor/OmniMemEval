@@ -57,6 +57,7 @@ and LLM settings.
 | `.env.memorylake` | MemoryLake |
 | `.env.backboard` | Backboard.io |
 | `.env.mem9` | mem9 |
+| `.env.lcmx` | LCM-X |
 | `.env.agent` | Agent Memory Evaluation / AgentBench |
 
 Templates include only placeholders and public defaults. Do not commit real
