@@ -1,30 +1,100 @@
 # Agent Memory Evaluation
 
-[中文版](./README_zh.md)
+[中文版](./README_zh.md) · [Documentation index](../README.md) · [Results](./results.md)
 
-[Documentation index](../README.md)
+## Overview
 
-Agent Memory Evaluation is the AgentBench-based evaluation track in OmniMemEval. It measures the task performance of an agent runtime after a memory plugin is installed. The current implementation evaluates OpenClaw across five task domains and supports both plain agent runs and memory-plugin lifecycle runs.
+This track evaluates an agent runtime with or without a memory plugin using
+the AgentBench module in OmniMemEval. The current public runtime adapter covers
+OpenClaw across five task domains.
 
-Results are recorded in [results.md](./results.md). The current architecture
-and extension contracts are documented in [architecture.md](./architecture.md).
+There are two evaluation setups:
 
-## Evaluation Protocols
+- Baseline: `test_only` or `train_then_test` without the target memory plugin.
+- Memory plugin: `memory_train_backup_test`, including cleanup, training,
+  settling, backup, restore, and testing.
 
-- plain AgentBench: runs `test_only` or `train_then_test` without enabling the target memory plugin.
-- memory plugin AgentBench: runs the `memory_train_backup_test` protocol, including memory cleanup, train execution, memory settling, backup, restore, and test execution.
+Read this guide in order for a first run. For an existing setup, jump to
+[advanced runs](#advanced-runs), [outputs and results](#outputs-and-results),
+or [extensions and contribution](#extensions-and-contribution).
+Run all commands from the repository root.
 
-## Data Source
+<a id="environment"></a>
+## Environment and configuration
 
-AgentBench uses the `EvoAgentBench` dataset published by EverMind (Hugging Face/GitHub namespace: `EverMind-AI`). Dataset ownership, task splits, and upstream benchmark definitions follow the EverMind-AI/EvoAgentBench dataset and project documentation. OmniMemEval only provides runner integration, configuration, lifecycle management, and result organization.
+### Install dependencies
 
-References:
+Use a dedicated Agent Memory environment, separate from User Memory:
 
-- Hugging Face dataset: `EverMind-AI/EvoAgentBench`
-- GitHub project: `EverMind-AI/EvoAgentBench`
-- Underlying benchmarks: BrowseCompPlus, OmniMath, SWE-Bench, LiveCodeBench, GDPVal
+```bash
+conda create -n agentmem python=3.12 -y
+conda activate agentmem
+python -m pip install -U pip
+python -m pip install -r requirements_agentbench.txt
+npm install -g openclaw
+```
 
-Dataset size:
+Configure a valid OpenClaw model/provider, then verify that the CLI is available:
+
+```bash
+openclaw --version
+openclaw agent --help
+```
+
+### Configure credentials
+
+Copy the Agent Memory template, then fill in the settings for the selected domain:
+
+```bash
+cp env_examples/.env.agent .env.agent
+```
+
+AgentBench loads the project `.env.agent` by default; `--env FILE` loads an
+additional env file. Keep these credentials separate from User Memory backend
+files such as `.env.memos`.
+
+| Purpose | Configuration |
+|---|---|
+| Agent model/provider | `configs/agentbench/agents/openclaw.yaml`, using `LLM_BASE_URL` and `LLM_API_KEY` |
+| Judge | `JUDGE_MODEL`, `JUDGE_API_BASE`, `JUDGE_API_KEY` |
+| Information retrieval embeddings | `IR_EMBEDDING_ENDPOINT`, `IR_EMBEDDING_MODEL`, `IR_EMBEDDING_API_KEY` |
+| External evaluation service | `EVALUATION_API_BASE`, `EVALUATION_API_KEY`, `EVALUATION_MODEL_OWNER`, `EVALUATION_MODEL_NAME`, `EVALUATION_TIMEOUT`, `EVALUATION_MAX_RETRIES` |
+
+Use the [env template](../../env_examples/.env.agent) and selected
+`configs/agentbench/domains/*.yaml` as the field reference. Provider fields
+not configured through the agent YAML/env settings can fall back to values
+resolvable from `~/.openclaw/openclaw.json`. Do not commit filled credential files.
+
+### Prepare a memory plugin when needed
+
+A baseline run does not require the target memory plugin. For
+`memory_train_backup_test`, install and configure that plugin first.
+For example, the MemOS local plugin provides this installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MemTensor/MemOS/main/apps/memos-local-plugin/install.sh | bash
+```
+
+Review upstream installers before executing them. Complete the generated plugin
+configuration, required credentials, local paths, and service endpoints, then
+confirm the plugin is enabled in OpenClaw.
+
+Memory-plugin runs enforce `runtime.home_mode: isolated_copy`, but
+`home_links` can still link real plugin data into the temporary OpenClaw home.
+Lifecycle clear/restore commands can delete or overwrite that data and restart
+services. Inspect the selected plugin YAML and use dedicated evaluation data,
+not personal memory.
+
+<a id="data-source"></a>
+## Data preparation
+
+AgentBench uses the `EverMind-AI/EvoAgentBench` dataset. Dataset ownership,
+splits, and underlying benchmark definitions follow the upstream project;
+OmniMemEval provides runner integration, configuration, lifecycle management,
+and result organization.
+
+- [Hugging Face dataset](https://huggingface.co/datasets/EverMind-AI/EvoAgentBench)
+- [Upstream project](https://github.com/EverMind-AI/EvoAgentBench)
 
 | Domain | Benchmark | Train | Test |
 |---|---|---:|---:|
@@ -34,88 +104,7 @@ Dataset size:
 | `code_implementation` | LiveCodeBench | 97 | 39 |
 | `knowledge_work` | GDPVal | 87 | 58 |
 
-## Environment
-
-Agent Memory Evaluation uses a separate conda environment from the User Memory track:
-
-```bash
-conda create -n agentmem python=3.12 -y
-conda activate agentmem
-python -m pip install -U pip
-pip install -r requirements_agentbench.txt
-```
-
-Do not reuse the User Memory environment for AgentBench. User Memory and AgentBench dependencies are maintained in separate requirements files.
-
-Install OpenClaw CLI and make sure it is available in `PATH`:
-
-```bash
-npm install -g openclaw
-```
-
-For memory-plugin lifecycle evaluations, install the target memory plugin before running AgentBench. For example, install the MemOS local plugin with:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MemTensor/MemOS/main/apps/memos-local-plugin/install.sh | bash
-```
-
-After installation, configure OpenClaw and the installed memory plugin before running validation. The exact plugin configuration depends on the plugin under evaluation. For the MemOS local plugin, complete the plugin configuration generated by the installer under the OpenClaw configuration directory, then confirm that the plugin entry is enabled in OpenClaw.
-
-At minimum, verify the following before running AgentBench:
-
-- OpenClaw has a valid model/provider configuration.
-- The memory plugin is installed and enabled in the OpenClaw config.
-- Required plugin credentials, local paths, or service endpoints are configured.
-- The AgentBench env file `.env.agent` is prepared as described below.
-
-After installation and configuration are complete, verify that the OpenClaw CLI can be invoked normally:
-
-```bash
-openclaw --version
-openclaw agent --help
-```
-
-Create the Agent Memory env file from the template:
-
-```bash
-cp env_examples/.env.agent .env.agent
-```
-
-AgentBench loads `.env.agent` by default. `--env FILE` can be used to supply an additional env file. This keeps Agent Memory credentials separate from User Memory backend env files such as `.env.memos` and `.env.mem0`.
-
-OpenClaw model settings are configured in:
-
-```text
-configs/agentbench/agents/openclaw.yaml
-```
-
-Common `.env.agent` fields:
-
-```bash
-LLM_BASE_URL=...
-LLM_API_KEY=...
-
-JUDGE_MODEL=...
-JUDGE_API_BASE=...
-JUDGE_API_KEY=...
-
-IR_EMBEDDING_ENDPOINT=...
-IR_EMBEDDING_MODEL=...
-IR_EMBEDDING_API_KEY=...
-
-EVALUATION_API_BASE=...
-EVALUATION_API_KEY=...
-EVALUATION_MODEL_OWNER=...
-EVALUATION_MODEL_NAME=...
-EVALUATION_TIMEOUT=240
-EVALUATION_MAX_RETRIES=3
-```
-
-OpenClaw model/provider credentials are injected from `.env.agent` into `configs/agentbench/agents/openclaw.yaml`. If provider fields are not set there, the adapter falls back to values resolvable from `~/.openclaw/openclaw.json`.
-
-## Data Preparation
-
-Run the following commands from the repository root:
+### Download the dataset
 
 ```bash
 mkdir -p data/agentbench
@@ -137,16 +126,21 @@ data/agentbench/
 
 The `hf` CLI is provided by `huggingface_hub`; see the
 [upstream CLI guide](https://huggingface.co/docs/huggingface_hub/en/guides/cli).
-Domain data paths are configured under `configs/agentbench/domains/*.yaml`. If a custom data location is used, update the relevant domain yaml fields.
+If using custom data locations, update the corresponding paths in
+`configs/agentbench/domains/*.yaml`.
 
-LiveCodeBench requires its official verifier package:
+### Prepare domain-specific dependencies
+
+Install only the additional tools needed by the selected domains.
+LiveCodeBench uses its official verifier package:
 
 ```bash
 git clone https://github.com/LiveCodeBench/LiveCodeBench.git ./LiveCodeBench
-pip install --no-deps -e ./LiveCodeBench
+python -m pip install --no-deps -e ./LiveCodeBench
 ```
 
-BrowseComp-Plus dense retrieval requires preprocessing, an index, and embedding service configuration:
+BrowseComp-Plus dense retrieval requires preprocessing, an index, and embedding
+service configuration:
 
 ```bash
 python scripts/agentbench/utils/browsecomp-plus-tools/setup_data.py \
@@ -156,7 +150,9 @@ python scripts/agentbench/utils/browsecomp-plus-tools/build_dense_index.py \
   --config configs/agentbench/domains/information_retrieval.yaml
 ```
 
-SWE-Bench requires Docker. GDPVal requires PDF/Office processing utilities. On Debian/Ubuntu:
+SWE-Bench requires Docker and network access to PyPI/GitHub from the evaluation
+containers. GDPVal requires PDF/Office processing utilities. On Debian/Ubuntu,
+install the required system packages with administrator privileges:
 
 ```bash
 apt-get update
@@ -164,12 +160,13 @@ apt-get install -y docker.io poppler-utils libreoffice openjdk-21-jdk
 systemctl start docker
 ```
 
-## Quick Start
+Java is relevant to Pyserini/BM25 retrieval; a setup using only a prebuilt dense
+index may not need it. These are domain-specific requirements, not prerequisites
+for the reasoning quick start below.
 
-After completing environment, credentials, and data preparation above, run one
-reasoning task. `--test-split 1` selects the first test question for this domain;
-omit it to evaluate the complete test split. `--parallel` controls concurrency,
-not the number of selected tasks.
+## Quick start
+
+After preparing the environment, credentials, and dataset, run one reasoning task:
 
 ```bash
 ./scripts/run_agent_eval.sh \
@@ -182,110 +179,113 @@ not the number of selected tasks.
   --parallel 1
 ```
 
-## Protocols
+This invokes real model/judge services and may incur charges. For reasoning,
+`--test-split 1` selects the first test question; omitting it selects the full
+test split. `--parallel` controls concurrency, not task count. A smoke run is
+not a full benchmark result.
 
-### `test_only`
+For complete protocols, see [advanced runs](#advanced-runs).
+The runner's `--help` lists CLI options.
 
-Runs the test split.
+## Advanced runs
+
+<a id="protocols"></a>
+### Evaluation protocols
+
+The following commands use complete configured splits.
+
+#### `test_only`
+
+Run the test split:
 
 ```bash
 ./scripts/run_agent_eval.sh \
-  --agent openclaw \
-  --domain reasoning \
-  --protocol test_only \
-  --version baseline_reasoning_test \
-  --trials 1 \
-  --parallel 1
+  --agent openclaw --domain reasoning --protocol test_only \
+  --version baseline_reasoning_test --trials 1 --parallel 1
 ```
 
-### `train_then_test`
+#### `train_then_test`
 
-Runs train split followed by test split. This protocol does not execute memory plugin lifecycle commands.
+Run training followed by testing, without memory-plugin lifecycle commands:
 
 ```bash
 ./scripts/run_agent_eval.sh \
-  --agent openclaw \
-  --domain reasoning \
-  --protocol train_then_test \
-  --version train_then_test_reasoning \
-  --trials 1 \
-  --parallel 1
+  --agent openclaw --domain reasoning --protocol train_then_test \
+  --version train_then_test_reasoning --trials 1 --parallel 1
 ```
 
-### `memory_train_backup_test`
+#### `memory_train_backup_test`
 
-This protocol evaluates memory plugins separately from baseline results:
+Evaluate a memory plugin separately from the baseline:
 
-1. Set plugin to train mode.
-2. Clear memory.
-3. Run train split.
-4. Submit verifier feedback as the next turn in the same OpenClaw session.
-5. If structured feedback is enabled in plugin config, submit plugin-side explicit feedback while preserving the same session/episode semantics.
-6. Wait for memory settling/evolution.
-7. Back up domain memory.
-8. Restore the domain backup before every test run.
-9. Run test split and write results to `results/agentbench`.
+1. Set the plugin to train mode and clear memory.
+2. Run training.
+3. Send verifier feedback as the next turn in the same OpenClaw session.
+4. If enabled, submit plugin-side structured feedback with the same session/episode semantics.
+5. Wait for memory settling/evolution.
+6. Back up domain memory.
+7. Restore the domain backup before every test run, even when test writes are disabled.
+8. Run testing and write results under `results/agentbench/`.
 
 Single domain:
 
 ```bash
 ./scripts/run_agent_eval.sh \
-  --agent openclaw \
-  --domain reasoning \
-  --protocol memory_train_backup_test \
-  --memory-plugin memos \
-  --version memos_reasoning_eval \
-  --test-runs 1 \
-  --trials 1 \
-  --parallel 1
+  --agent openclaw --domain reasoning --protocol memory_train_backup_test \
+  --memory-plugin memos --version memos_reasoning_eval \
+  --test-runs 1 --trials 1 --parallel 1
 ```
 
-Five domains:
+All five domains:
 
 ```bash
 ./scripts/run_agentbench_memory_train_backup_test.sh \
-  --memory-plugin memos \
-  --version memos_5domain_eval \
-  --test-runs 1 \
-  --trials 1 \
-  --parallel 1
+  --memory-plugin memos --version memos_5domain_eval \
+  --test-runs 1 --trials 1 --parallel 1
 ```
 
 Domain subset:
 
 ```bash
 ./scripts/run_agentbench_memory_train_backup_test.sh \
-  --memory-plugin memos \
-  --domains reasoning,code_implementation \
+  --memory-plugin memos --domains reasoning,code_implementation \
   --version memos_reasoning_code_eval
 ```
 
-## Memory Plugin Configuration
+### Memory plugin configuration
 
-Plugin lifecycle configs live under:
-
-```text
-configs/agentbench/memory_plugins/
-  memos.yaml
-  everos.yaml
-  openviking.yaml
-  supermemory.yaml
-  hindsight.yaml
-```
+Lifecycle configs live under `configs/agentbench/memory_plugins/`:
+`memos.yaml`, `everos.yaml`, `openviking.yaml`, `supermemory.yaml`,
+and `hindsight.yaml`.
 
 Each config declares:
 
-- `plugin`: plugin label used in result directory names.
-- `backup_dir` and `backup_file_template`: memory backup location.
-- `settle_seconds` or `commands.wait_settle`: post-train memory settling logic.
+- `plugin`: label used in result directory names.
+- `backup_dir` and `backup_file_template`: backup location.
+- `settle_seconds` or `commands.wait_settle`: post-training settling behavior.
 - `home_links`: plugin paths linked into the isolated OpenClaw home.
-- `modes.train/test` or `commands.set_mode_*`: plugin read/write mode.
-- `commands.clear/backup/restore`: memory cleanup, backup, and restore commands.
-- `feedback`: train feedback settings and optional plugin-side structured feedback.
+- `modes.train/test` or `commands.set_mode_*`: read/write modes.
+- `commands.clear/backup/restore`: lifecycle operations.
+- `feedback`: training feedback and optional plugin-side structured feedback.
 
-## Results
+For example, `memos.yaml` enables structured feedback:
 
-Each domain writes outputs under:
+```yaml
+feedback:
+  enabled: true
+  timeout: 300
+  memos_structured_submit: true
+  memos_submit_timeout: 900
+```
+
+Other plugin configs use ordinary training feedback by default without this
+structured submit. Check the selected YAML rather than assuming identical
+plugin behavior.
+
+<a id="results"></a>
+## Outputs and results
+
+For the memory-plugin protocol, the output layout is:
 
 ```text
 results/agentbench/<profile>-<version>-<domain>/
@@ -293,15 +293,60 @@ results/agentbench/<profile>-<version>-<domain>/
   memory_lifecycle.log
   memory_lifecycle.json
   train/
+    summary.json
+    report.md
+    <task>__trial_1/
+      result.json
+      response.txt
+      session.jsonl
+      verifier/
   test_run_1/
+    summary.json
+    report.md
+    <task>__trial_1/
+      result.json
+      response.txt
+      session.jsonl
+      verifier/
 ```
 
-Key files:
+Key fields:
 
 - `summary.json`: `pass@1`, average reward, and average runtime.
-- `result.json.agent_result`: OpenClaw completion status and session recovery metadata.
-- `result.json.feedback_result`: train feedback turn status.
+- `result.json.agent_result`: completion status, runtime, and session recovery metadata.
+- `result.json.feedback_result`: same-session training feedback status.
 - `result.json.memos_feedback_result`: plugin-side structured feedback status when enabled.
-- `memory_lifecycle.json`: clear/backup/restore lifecycle events.
+- `memory_lifecycle.json`: clear/backup/restore events.
 
-Recent evaluation results are recorded in [results.md](./results.md). Model service, external judge service, and embedding service status may affect per-sample rewards.
+See [evaluation results](./results.md) for published setups and tables. The
+snapshot also includes Hermes results; the current public runtime adapter covers
+OpenClaw, not a Hermes reproduction path. Model, judge, and embedding service
+availability can affect per-sample rewards.
+
+## Extensions and contribution
+
+The [architecture and extension contracts](./architecture.md) describe the
+runner, session identity, result fields, and agent/domain extension points.
+Agent Memory adapters are separate from the User Memory
+`scripts/client_factory/` adapter layer.
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for PR workflow and evidence
+requirements. The root [repository layout](../../README.md#repository-layout)
+describes where code, configuration, and data preparation live.
+
+## Verification and licenses
+
+Use a separate development environment with Python 3.11 or 3.12 for offline checks:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+python scripts/check_doc_links.py
+```
+
+The [test guide](../../scripts/tests/README.md) distinguishes offline tests,
+repository checks, and real-backend integration tests. Offline CI does not
+validate benchmark scores or call live services.
+
+See [LICENSE](../../LICENSE) for the code license. External datasets keep their
+upstream licenses; see [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).

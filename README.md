@@ -80,7 +80,7 @@ hf download EverMind-AI/EvoAgentBench \
 ## Results
 
 - User Memory public result snapshot: [docs/user_memory/results.md](./docs/user_memory/results.md)
-- AgentBench evaluation results: [docs/agent_memory/results.md](./docs/agent_memory/results.md)
+- Agent Memory evaluation results: [docs/agent_memory/results.md](./docs/agent_memory/results.md)
 
 Documentation index: [docs/README.md](./docs/README.md)
 

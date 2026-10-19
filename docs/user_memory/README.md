@@ -1,121 +1,69 @@
 # User Memory Evaluation
 
-[中文版](./README_zh.md)
+[中文版](./README_zh.md) · [Documentation index](../README.md) · [Results](./results.md)
 
-[Documentation index](../README.md)
+## Overview
 
-This document covers the User Memory Evaluation track in OmniMemEval. This track evaluates memory backend APIs through a shared benchmark pipeline and a common adapter layer. Users can switch memory backends with `--lib` and compare mainstream memory products, self-hosted memory frameworks, and custom adapters under the same benchmark flow.
+This track evaluates memory backend APIs through a shared benchmark pipeline
+and adapter layer. Select a backend with `--lib` to evaluate memory products,
+self-hosted frameworks, or custom adapters under the same benchmark flow.
 
-The adapter layer covers 14 mainstream memory solutions through 15 adapter entries, including MemOS, Mem0, Zep/Graphiti, Supermemory, EverOS, Letta, Hindsight, Cognee, Viking Memory, Memori, MemMachine, MemoryLake, Backboard.io, and mem9. This track supports five benchmark tasks: LoCoMo, LongMemEval, BEAM, PersonaMem v2, and HaluMem. These tasks cover complementary
-long-term memory capabilities, including conversation recall, cross-session
-updates, large-scale retrieval, personalization, and robustness under
-hallucination, conflict, and dynamic-update scenarios.
+There are 15 adapter entries covering 14 memory solutions (Zep and Graphiti
+have separate entries). Supported benchmarks are LoCoMo, LongMemEval, BEAM,
+PersonaMem v2, and HaluMem.
 
-Benchmark coverage:
+Read this guide in order for a first run. For an existing setup, jump to
+[advanced runs](#advanced-runs), [outputs and results](#outputs-and-results),
+or [extensions and contribution](#extensions-and-contribution).
+Run all commands from the repository root.
 
-- [LoCoMo](#locomo): long-conversation QA for multi-hop recall, temporal
-  reasoning, and open-domain memory use.
-- [LongMemEval](#longmemeval): cross-session long-term memory with knowledge
-  updates, temporal reasoning, and preference questions.
-- [BEAM](#beam): large-scale memory retrieval from 128K to 10M token contexts.
-- [PersonaMem v2](#personamem-v2): personalized memory evaluation focused on
-  preferences, sensitive information, and user-specific behavior.
-- [HaluMem](#halumem): robustness evaluation for memory hallucination, boundary
-  detection, conflicts, multi-hop inference, and dynamic updates.
+## Environment and configuration
 
-## Pipeline
+<a id="1-create-environment"></a>
+### Install dependencies
 
-OmniMemEval benchmark pipelines use the same staged flow:
-
-```text
-┌──────────────────┐
-│ Benchmark Data   │
-│ dataset-specific │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      add()       ┌──────────────────┐
-│ 1. Ingest        ├─────────────────▶│ Memory Backend   │
-│ conversations    │                  │ selected by --lib│
-└────────┬─────────┘                  └────────┬─────────┘
-         │                                     │
-         ▼                                     │ search()
-┌──────────────────┐                           │
-│ 2. Search        │◀──────────────────────────┘
-│ retrieve context │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      ANSWER LLM
-│ 3. Answer        ├─────────────────▶ generated answers
-│ generation       │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      EVAL LLM / NLP
-│ 4. Evaluation    ├─────────────────▶ judged records
-│ LLM-as-Judge     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 5. Metrics       │
-│ accuracy/latency │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 6. Report        │
-│ markdown/results │
-└──────────────────┘
-```
-
-- Ingest calls the selected memory client `add()`.
-- Search calls the selected memory client `search()`.
-- Answer generation uses an OpenAI-compatible ANSWER model.
-- Evaluation uses an OpenAI-compatible EVAL model for LLM-as-Judge plus NLP metrics.
-- Metrics and reports are written under `results/<benchmark>/<LIB>-<VERSION>/`.
-
-The shell runners and Python stages support checkpoint/resume so interrupted
-runs can continue from the last completed step.
-
-## Quick Start
-
-### 1. Create Environment
+Use a dedicated User Memory environment:
 
 ```bash
 conda create -n omnimemeval python=3.12 -y
 conda activate omnimemeval
-pip install -r requirements_user_memory.txt
+python -m pip install -r requirements_user_memory.txt
 ```
 
-AgentBench dependencies live in `requirements_agentbench.txt` and should be installed in a separate Agent Memory environment.
+Install Agent Memory dependencies in a separate environment, as described in the
+[Agent Memory guide](../agent_memory/README.md).
 
-### 2. Configure Credentials
+<a id="2-configure-credentials"></a>
+### Configure credentials
 
-Start from a product-specific template:
+Copy the template for the backend you want to evaluate, then fill in its values.
+For example:
 
 ```bash
 cp env_examples/.env.memos .env.memos
 ```
 
-Fill in the required memory product credentials and the OpenAI-compatible
-ANSWER/EVAL LLM settings:
+Configure the answer model, judge model where applicable, and backend credentials:
 
 - `ANSWER_MODEL`, `ANSWER_API_KEY`, `ANSWER_BASE_URL`
-- `EVAL_MODEL`, `EVAL_API_KEY`, `EVAL_BASE_URL`
-- Product-specific memory credentials such as `MEMOS_API_KEY` or `MEM0_API_KEY`
+- `EVAL_MODEL`, `EVAL_API_KEY`, `EVAL_BASE_URL` for LLM judging
+- Backend credentials such as `MEMOS_API_KEY` or `MEM0_API_KEY`
 
-See [env_examples/README.md](../../env_examples/README.md) and
-[env_examples/PARAMETERS.md](../../env_examples/PARAMETERS.md).
+See the [template index](../../env_examples/README.md) and
+[parameter reference](../../env_examples/PARAMETERS.md) for backend-specific
+settings, defaults, and benchmark applicability. PersonaMem v2 uses option
+matching, not an LLM judge. Do not commit filled credential files.
 
-### 3. Prepare Data
+<a id="3-prepare-data"></a>
+## Data preparation
+
+Download only the benchmarks you plan to run:
 
 ```bash
 # LoCoMo
 python data/locomo/prepare_locomo.py
 
-# LongMemEval S
+# LongMemEval-S
 python data/longmemeval/prepare_longmemeval.py
 
 # BEAM 100K
@@ -124,15 +72,74 @@ python data/beam/prepare_beam.py
 # PersonaMem v2
 python data/personamem_v2/prepare_personamem.py
 
-# HaluMem Medium
+# HaluMem-Medium
 python data/halumem/prepare_halumem.py
 ```
 
-Benchmark data is downloaded on demand and is not committed to this repository.
-See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and the dataset README
-files for upstream dataset licenses and redistribution notes.
+Data is downloaded on demand and is not committed to this repository. See the
+[benchmark descriptions](#benchmarks), dataset READMEs, and
+[third-party notices](../../THIRD_PARTY_NOTICES.md) for data preparation and licenses.
 
-### 4. Run Evaluations
+## Quick start
+
+After configuring the backend and preparing LongMemEval data, check ingestion
+and search for one conversation:
+
+```bash
+./scripts/run_lme_eval.sh --lib memos --env .env.memos --version smoke_lme \
+  --streaming 1 --start-idx 0 --end-idx 0 --to-step 2
+```
+
+This calls a real backend and may incur charges. The index range selects the
+first evaluation conversation. Streaming mode adds, searches, saves results,
+and deletes that unit's backend memory. `--to-step 2` stops before answer
+generation and judging; this check does not produce a full benchmark score.
+Use a dedicated evaluation account.
+
+For complete scored runs, see [advanced runs](#advanced-runs). CLI options are
+also available through each runner's `--help`.
+
+## Benchmarks
+
+### LoCoMo
+
+Long-conversation QA covering multi-hop recall, temporal reasoning, and
+open-domain memory use. The reproduced results exclude adversarial questions.
+See [data and license notes](../../data/locomo/README.md).
+
+### LongMemEval
+
+Cross-session long-term memory covering knowledge updates, temporal reasoning,
+and preferences. The shared loader uses `longmemeval_s_cleaned.json`, removing
+known bad special tokens consistently for ingestion and search.
+See [data and license notes](../../data/longmemeval/README.md).
+
+### BEAM
+
+Large-scale long-memory QA. The runner supports 100K (approximately 128K
+tokens), 500K, 1M, and 10M scales, with per-nugget LLM judging.
+See [data and license notes](../../data/beam/README.md).
+
+<a id="personamem-v2"></a>
+### PersonaMem v2
+
+Personalized memory and preference-aware multiple-choice QA. Scoring matches the
+selected option against the gold answer without an LLM judge.
+See [data and license notes](../../data/personamem_v2/README.md).
+
+### HaluMem
+
+Memory robustness covering hallucinations, memory boundaries, conflicts,
+multi-hop inference, and dynamic updates.
+See [data and license notes](../../data/halumem/README.md).
+
+## Advanced runs
+
+<a id="4-run-evaluations"></a>
+### Full benchmark runs
+
+Each command below evaluates its benchmark's configured dataset, not a small
+smoke subset. Prepare the corresponding data and credentials first.
 
 ```bash
 ./scripts/run_locomo_eval.sh --lib memos --env .env.memos
@@ -142,74 +149,112 @@ files for upstream dataset licenses and redistribution notes.
 ./scripts/run_halumem_eval.sh --lib memos --env .env.memos
 ```
 
-Use `--help` on a runner for its accepted options. Shared defaults and
-benchmark-specific applicability are maintained in the
-[parameter reference](../../env_examples/PARAMETERS.md).
+Replace `memos` and the env file with the desired backend. Set `--version <name>`
+to isolate run artifacts. Shared defaults and benchmark-specific options are
+maintained in the [parameter reference](../../env_examples/PARAMETERS.md).
 
-Streaming mode is available for LongMemEval, BEAM, PersonaMem v2, and
-HaluMem. In streaming mode, OmniMemEval runs add, search, save, and delete for
-each benchmark unit before moving to the next unit. Use `--streaming 1` on the
-corresponding runner:
+<a id="pipeline"></a>
+### Pipeline and scoring
 
-```bash
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --streaming 1
+The standard retrieval-based flow is:
+
+```text
+Dataset → Ingest (add) → Search → Answer → Evaluate → Metrics → Report
+             ↕             ↕
+               Memory backend
 ```
 
-Streaming runs support `--start-idx`, `--end-idx`, `--restart-unit`,
-`--no-resume`, and `--skip-failed-streaming`.
+- Ingestion and search call the selected adapter's `add()` and `search()`.
+- Answer generation normally uses the configured OpenAI-compatible answer model.
+  Backend-specific direct-answer modes may replace or skip that stage; disclose
+  the selected mode when reporting results.
+- LoCoMo, LongMemEval, and HaluMem use LLM judging, with additional metrics where
+  implemented. BEAM uses LLM-based nugget scoring. PersonaMem v2 uses option matching.
+- Runners support stage checkpoints and replay. A partial run is not a complete
+  benchmark result.
 
-Ingestion/search checks (these call the backend; only the LongMemEval example
-below limits the dataset to one unit):
+### Streaming and partial runs
+
+LongMemEval, BEAM, PersonaMem v2, and HaluMem support `--streaming 1`.
+For each unit, streaming runs add, search, save, and delete before proceeding.
+It supports `--start-idx`, `--end-idx`, `--restart-unit`, `--no-resume`,
+and `--skip-failed-streaming`; check the selected runner's `--help` for semantics.
+
+Use `--to-step 2` for ingestion/search checks. This limits stages, not dataset
+size; without an explicit supported subset selector, it can still process the
+whole dataset. The [quick start](#quick-start) combines both limits for LongMemEval.
+
+### Replay
+
+Resume later stages in an existing run by using the same backend/version and
+keeping the prerequisite artifacts. For example, to regenerate answers onward:
 
 ```bash
-# LoCoMo: run ingestion and search only
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos --version smoke_locomo --to-step 2
-
-# LongMemEval: run one streaming conversation through search only
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --version smoke_lme \
-  --streaming 1 --start-idx 0 --end-idx 0 --to-step 2
-
-# BEAM: run ingestion and search only on the default 100K scale
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --version smoke_beam --to-step 2
-
-# PersonaMem v2: run ingestion and search only
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --version smoke_pmv2 --to-step 2
-
-# HaluMem: run ingestion and search only
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --version smoke_hm --to-step 2
+./scripts/run_lme_eval.sh --lib memos --env .env.memos \
+  --version existing_run --from-step 3
 ```
 
-Replay later stages from an existing result directory:
+Replace `existing_run` with your saved run version. Explicit `--from-step`
+forces that stage and subsequent stages to run again.
+
+By contrast, `--replay` loads a saved experiment configuration and creates a new
+timestamped run version. It does not copy earlier-stage artifacts into the new
+directory. To repeat a complete run:
 
 ```bash
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos --replay results/locomo/{LIB}-{VERSION}/
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --replay results/lme/{LIB}-{VERSION}/
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --replay results/beam/{LIB}-{VERSION}/
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --replay results/pmv2/{LIB}-{VERSION}/
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --replay results/halumem/{LIB}-{VERSION}/
+./scripts/run_lme_eval.sh --env .env.memos \
+  --replay results/lme/{LIB}-{VERSION}/
 ```
 
-## Benchmark Results
+Other runners accept `--replay` with their corresponding result directory.
+Replace `{LIB}-{VERSION}` with the saved backend key and run version. Use the
+`--env FILE --replay DIR` ordering shown above; the backend key and run settings
+are restored from the saved configuration, so do not add `--lib`.
+Only use trusted configurations: replay sources `experiment_config.sh` as shell code.
+Record any configuration changes and disclose checkpoint reuse or re-evaluation
+when submitting scores.
 
-See [benchmark results](./results.md) for the public
-result snapshot reproduced under OmniMemEval's shared evaluation setup. The
-document includes reproduced scores, context-token metrics, deployment notes,
-published reference scores, and reproduction commands for the currently public
-benchmark pipelines.
+<a id="cleanup"></a>
+### Cleanup
 
-## Supported Memory Backends
+Preview the evaluation user IDs before deleting backend memory from a run:
 
-The public adapter layer exposes a common `add()` / `search()` / `delete()`
-interface for mainstream memory products and self-hosted memory frameworks:
+```bash
+./scripts/run_memory_clear.sh --lib memos --env .env.memos --version '<run-version>' --datasets locomo,lme,beam,pmv2,hm --dry-run
+./scripts/run_memory_clear.sh --lib memos --env .env.memos --version '<run-version>' --datasets locomo,lme,beam,pmv2,hm --yes
+```
 
-Use `--lib` to run the same benchmark against different memory solutions
-without changing the benchmark stages, prompt flow, or metric calculation.
+Replace `<run-version>` with the intended run version. `--dry-run` does not
+delete data; actual deletion requires `--yes`.
+For non-default BEAM or HaluMem datasets, use repeatable `--beam-scale`
+or `--halumem-variant` options as appropriate. Verify the account and run version.
 
-| `--lib` | Adapter |
-|---------|---------|
+<a id="benchmark-results"></a>
+## Outputs and results
+
+Artifacts are written under these directories, using the backend key and run version:
+
+| Benchmark | Result directory |
+|---|---|
+| LoCoMo | `results/locomo/{LIB}-{VERSION}/` |
+| LongMemEval | `results/lme/{LIB}-{VERSION}/` |
+| BEAM | `results/beam/{LIB}-{VERSION}/` |
+| PersonaMem v2 | `results/pmv2/{LIB}-{VERSION}/` |
+| HaluMem | `results/halumem/{LIB}-{VERSION}/` |
+
+See [benchmark results](./results.md) for the public snapshot, evaluation
+configuration, aggregation rules, and context-token definitions.
+Reproduced Results and Published Reference Results have different evidence
+and comparability requirements; do not mix them.
+
+<a id="supported-memory-backends"></a>
+## Extensions and contribution
+
+The adapter layer provides common add/search operations and user-scoped cleanup.
+Supported backend keys are:
+
+| `--lib` | Backend |
+|---|---|
 | `memos` | MemOS |
 | `mem0` | Mem0 |
 | `zep` | Zep |
@@ -226,172 +271,30 @@ without changing the benchmark stages, prompt flow, or metric calculation.
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
 
-To contribute a backend, follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter).
+Follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter)
+for integration, configuration, isolation, and testing, and the
+[result submission requirements](../../CONTRIBUTING.md#submitting-benchmark-results)
+for published or reproduced scores.
 
-## Benchmarks
+<a id="project-layout"></a>
+The root [repository layout](../../README.md#repository-layout) describes where
+code, configuration, and data preparation live.
 
-<a id="locomo"></a>
-### LoCoMo
+<a id="verification"></a>
+## Verification and licenses
 
-LoCoMo evaluates long-conversation memory with multi-hop, temporal, and
-open-domain QA. Data and license notes live in
-[data/locomo/README.md](../../data/locomo/README.md).
-
-```bash
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos
-```
-
-Results: `results/locomo/{LIB}-{VERSION}/`
-
-Replay later stages:
+Use a separate development environment with Python 3.11 or 3.12 for offline checks:
 
 ```bash
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos --replay results/locomo/{LIB}-{VERSION}/
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+python scripts/check_doc_links.py
 ```
 
-<a id="longmemeval"></a>
-### LongMemEval
+The [test guide](../../scripts/tests/README.md) distinguishes offline tests,
+repository checks, and real-backend integration tests. Offline CI does not
+validate benchmark scores or call live services.
 
-LongMemEval evaluates long-term memory across sessions. OmniMemEval loads
-`longmemeval_s_cleaned.json` through a shared loader that removes known bad
-special tokens and applies the same cleaned data to ingestion and search. Data
-and license notes live in
-[data/longmemeval/README.md](../../data/longmemeval/README.md).
-
-```bash
-./scripts/run_lme_eval.sh --lib memos --env .env.memos
-```
-
-Results: `results/lme/{LIB}-{VERSION}/`
-
-Replay later stages:
-
-```bash
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --replay results/lme/{LIB}-{VERSION}/
-```
-
-<a id="beam"></a>
-### BEAM
-
-BEAM evaluates long-term memory at 128K, 500K, 1M, and 10M token scales with
-per-nugget LLM-as-Judge scoring. Data and license notes live in
-[data/beam/README.md](../../data/beam/README.md).
-
-```bash
-./scripts/run_beam_eval.sh --lib memos --env .env.memos
-```
-
-Results: `results/beam/{LIB}-{VERSION}/`
-
-Replay later stages:
-
-```bash
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --replay results/beam/{LIB}-{VERSION}/
-```
-
-<a id="personamem-v2"></a>
-### PersonaMem v2
-
-PersonaMem v2 evaluates personalized memory and preference-aware multiple-choice
-QA. Data and license notes live in
-[data/personamem_v2/README.md](../../data/personamem_v2/README.md).
-
-```bash
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos
-```
-
-Results: `results/pmv2/{LIB}-{VERSION}/`
-
-Replay later stages:
-
-```bash
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --replay results/pmv2/{LIB}-{VERSION}/
-```
-
-<a id="halumem"></a>
-### HaluMem
-
-HaluMem evaluates memory hallucination, conflict handling, dynamic updates, and
-memory-boundary robustness. Data and license notes live in
-[data/halumem/README.md](../../data/halumem/README.md).
-
-```bash
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos
-```
-
-Results: `results/halumem/{LIB}-{VERSION}/`
-
-Replay later stages:
-
-```bash
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --replay results/halumem/{LIB}-{VERSION}/
-```
-
-## Cleanup
-
-To delete backend memory created by a run:
-
-```bash
-./scripts/run_memory_clear.sh --lib memos --env .env.memos --version <name> --datasets locomo,lme,beam,pmv2,hm --dry-run
-./scripts/run_memory_clear.sh --lib memos --env .env.memos --version <name> --datasets locomo,lme,beam,pmv2,hm --yes
-```
-
-`--dry-run` prints target ids without deleting data. Destructive deletion
-requires `--yes`. Use repeatable `--beam-scale` and `--halumem-variant` when
-clearing non-default BEAM or HaluMem datasets.
-
-## Project Layout
-
-```text
-OmniMemEval/
-├── data/
-│   ├── beam/
-│   ├── halumem/
-│   ├── locomo/
-│   ├── longmemeval/
-│   └── personamem_v2/
-├── docs/
-│   └── user_memory/
-│       ├── README.md
-│       ├── README_zh.md
-│       └── results.md
-├── env_examples/
-├── scripts/
-│   ├── client_factory/
-│   ├── beam/
-│   ├── halumem/
-│   ├── locomo/
-│   ├── longmemeval/
-│   ├── personamem_v2/
-│   ├── tests/
-│   ├── utils/
-│   ├── run_beam_eval.sh
-│   ├── run_halumem_eval.sh
-│   ├── run_locomo_eval.sh
-│   ├── run_lme_eval.sh
-│   ├── run_pmv2_eval.sh
-│   └── run_memory_clear.sh
-├── README.md
-├── README_zh.md
-├── THIRD_PARTY_NOTICES.md
-├── requirements_user_memory.txt  # User Memory dependencies
-└── requirements_agentbench.txt   # AgentBench dependencies
-```
-
-## Verification
-
-```bash
-git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
-conda run -n omnimemeval python -m compileall -q scripts data
-conda run -n omnimemeval python -m pip install -r requirements-dev.txt
-conda run -n omnimemeval python -m pytest -q
-```
-
-See the [test guide](../../scripts/tests/README.md) for offline suites, CI checks,
-and backend integration smoke tests.
-
-## License
-
-See [LICENSE](../../LICENSE). Third-party benchmark data keeps its upstream license;
-the OmniMemEval code license does not relicense external datasets. See
-[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+<a id="license"></a>
+See [LICENSE](../../LICENSE) for the code license. External datasets keep their
+upstream licenses; see [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).

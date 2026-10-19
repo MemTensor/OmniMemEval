@@ -77,8 +77,8 @@ hf download EverMind-AI/EvoAgentBench \
 
 ## 结果
 
-- User Memory 公开结果快照（英文）：[docs/user_memory/results.md](./docs/user_memory/results.md)
-- AgentBench 评测结果：[docs/agent_memory/results_zh.md](./docs/agent_memory/results_zh.md)
+- User Memory 评测结果：[中文说明与结果表入口](./docs/user_memory/results_zh.md)
+- Agent Memory 评测结果：[中文说明与结果表入口](./docs/agent_memory/results_zh.md)
 
 文档索引：[docs/README_zh.md](./docs/README_zh.md)
 

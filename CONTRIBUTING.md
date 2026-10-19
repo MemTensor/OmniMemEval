@@ -30,6 +30,25 @@ Match the surrounding code style, avoid unrelated formatting changes, and add
 a regression test for a behavior fix. Documentation-only changes should pass
 the link checks; include a minimal before/after example when explaining a bug.
 
+## Maintaining documentation
+
+- Keep track guides in `docs/user_memory/` and `docs/agent_memory/`, with
+  `README.md` for English and `README_zh.md` for Chinese. Use the existing
+  `name.md` / `name_zh.md` convention for other paired pages; avoid renaming URLs
+  just for style.
+- Update both languages when changing guide sections, commands, options, or
+  required setup. Translate explanations, not product names, paths, or flags.
+- Maintain numeric result tables only in each track's English `results.md`.
+  Chinese result pages provide translated context and links to the canonical
+  tables rather than copying scores. Keep methodology explanations aligned.
+- Keep parameter defaults, dataset/license details, and test commands in their
+  existing reference files; link to them instead of duplicating full references.
+  Distinguish bounded smoke checks, full evaluations, and destructive operations.
+- Check file links and preserve existing heading anchors with aliases when
+  reorganizing sections.
+  The automated link checker validates relative file targets, not anchors or
+  external URLs.
+
 ## Adding a User Memory adapter
 
 The public entry points use `add(messages, user_id, ...)` and

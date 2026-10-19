@@ -1,113 +1,67 @@
-# User Memory Evaluation
+<a id="user-memory-evaluation"></a>
+# User Memory Evaluation（用户记忆评测）
 
-[English](./README.md)
+[English](./README.md) · [文档索引](../README_zh.md) · [评测结果](./results_zh.md)
 
-[文档索引](../README_zh.md)
+## 概览
 
-本文档说明 OmniMemEval 的 User Memory Evaluation 评测线。该评测线通过统一 benchmark pipeline 和 adapter 层评估 memory backend API。用户可以通过 `--lib` 切换不同 memory backend，在同一套 benchmark 流程下对比主流 memory 产品、自托管 memory framework 和自定义 adapter。
+本评测线通过共享评测流程和适配器（adapter）层评估记忆后端（memory backend）
+API。通过 `--lib` 选择后端，可以在同一套 benchmark 流程下评估记忆产品、
+自托管框架和自定义适配器。
 
-adapter 层通过 15 个入口覆盖 14 种主流 memory 方案，包括 MemOS、Mem0、Zep/Graphiti、Supermemory、EverOS、Letta、Hindsight、Cognee、Viking Memory、Memori、MemMachine、MemoryLake、Backboard.io 和 mem9。该评测线支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 5 个评测任务，覆盖长期记忆系统中几类关键能力：对话记忆、跨 session 更新、超长上下文检索、个性化偏好，以及在
-幻觉、冲突和动态更新场景下的鲁棒性。
+目前有 15 个适配器入口，覆盖 14 种记忆方案（Zep 和 Graphiti 使用不同入口），
+支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 五个 benchmark。
 
-Benchmark 覆盖：
+首次运行建议按本文顺序阅读。已有环境可以直接查看
+[进阶运行](#进阶运行)、[输出与结果](#输出与结果)或[扩展与贡献](#扩展与贡献)。
+所有命令均在仓库根目录执行。
 
-- [LoCoMo](#locomo)：长对话 QA，覆盖多跳召回、时序推理和开放域记忆使用。
-- [LongMemEval](#longmemeval)：跨 session 长期记忆，覆盖知识更新、时序推理和偏好问题。
-- [BEAM](#beam)：128K 到 10M token 上下文规模下的大规模记忆检索评测。
-- [PersonaMem v2](#personamem-v2)：面向用户偏好、敏感信息和个性化行为的记忆评测。
-- [HaluMem](#halumem)：面向记忆幻觉、边界识别、冲突处理、多跳推理和动态更新的鲁棒性评测。
+## 环境与配置
 
-## 评测流程
+<a id="1-创建环境"></a>
+### 安装依赖
 
-OmniMemEval 的 benchmark 链路共享同一套阶段：
-
-```text
-┌──────────────────┐
-│ Benchmark 数据   │
-│ 数据集特定格式   │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      add()       ┌──────────────────┐
-│ 1. 写入          ├─────────────────▶│ Memory Backend   │
-│ 对话内容         │                  │ 由 --lib 选择    │
-└────────┬─────────┘                  └────────┬─────────┘
-         │                                     │
-         ▼                                     │ search()
-┌──────────────────┐                           │
-│ 2. 检索          │◀──────────────────────────┘
-│ 召回上下文       │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      ANSWER LLM
-│ 3. 生成答案      ├─────────────────▶ 生成答案
-│ ANSWER 模型      │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐      EVAL LLM / NLP
-│ 4. 评估          ├─────────────────▶ 评估记录
-│ LLM-as-Judge     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 5. 指标计算      │
-│ 准确率/延迟      │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ 6. 报告          │
-│ Markdown/结果    │
-└──────────────────┘
-```
-
-- 写入阶段调用 memory client 的 `add()`。
-- 检索阶段调用 memory client 的 `search()`。
-- 答案生成阶段使用 OpenAI-compatible ANSWER 模型生成答案。
-- 评估阶段使用 OpenAI-compatible EVAL 模型做 LLM-as-Judge，并计算 NLP 指标。
-- 指标和报告写入 `results/<benchmark>/<LIB>-<VERSION>/`。
-
-Shell runner 和 Python 阶段都支持 checkpoint/resume。
-
-## 快速开始
-
-### 1. 创建环境
+为 User Memory 创建独立环境：
 
 ```bash
 conda create -n omnimemeval python=3.12 -y
 conda activate omnimemeval
-pip install -r requirements_user_memory.txt
+python -m pip install -r requirements_user_memory.txt
 ```
 
-AgentBench 依赖放在 `requirements_agentbench.txt`，应安装在独立的 Agent Memory 环境中。
+Agent Memory 的依赖应安装在另一个环境中，详见
+[Agent Memory 指南](../agent_memory/README_zh.md)。
 
-### 2. 配置凭证
+<a id="2-配置凭证"></a>
+### 配置凭证
 
-从产品模板开始：
+复制待评测后端的模板，再填写配置。例如：
 
 ```bash
 cp env_examples/.env.memos .env.memos
 ```
 
-填写 memory 产品凭证和 ANSWER/EVAL LLM 配置：
+配置答案模型、适用时的评分模型，以及后端凭证：
 
-- `ANSWER_MODEL`, `ANSWER_API_KEY`, `ANSWER_BASE_URL`
-- `EVAL_MODEL`, `EVAL_API_KEY`, `EVAL_BASE_URL`
-- 产品侧凭证，例如 `MEMOS_API_KEY` 或 `MEM0_API_KEY`
+- `ANSWER_MODEL`、`ANSWER_API_KEY`、`ANSWER_BASE_URL`
+- 使用 LLM 评分时的 `EVAL_MODEL`、`EVAL_API_KEY`、`EVAL_BASE_URL`
+- 后端凭证，例如 `MEMOS_API_KEY` 或 `MEM0_API_KEY`
 
-完整参数见 [env_examples/README.md](../../env_examples/README.md) 和
-[env_examples/PARAMETERS.md](../../env_examples/PARAMETERS.md)。
+后端特有配置、默认值和各 benchmark 的适用范围见
+[模板索引（英文）](../../env_examples/README.md)和
+[参数说明（英文）](../../env_examples/PARAMETERS.md)。
+PersonaMem v2 使用选项匹配，不使用 LLM 评分。不要提交填写了凭证的文件。
 
-### 3. 准备数据
+<a id="3-准备数据"></a>
+## 数据准备
+
+只下载计划运行的 benchmark：
 
 ```bash
 # LoCoMo
 python data/locomo/prepare_locomo.py
 
-# LongMemEval S
+# LongMemEval-S
 python data/longmemeval/prepare_longmemeval.py
 
 # BEAM 100K
@@ -116,14 +70,68 @@ python data/beam/prepare_beam.py
 # PersonaMem v2
 python data/personamem_v2/prepare_personamem.py
 
-# HaluMem Medium
+# HaluMem-Medium
 python data/halumem/prepare_halumem.py
 ```
 
-Benchmark 数据按需下载，不提交到仓库。上游数据许可证和再分发说明见
-[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) 和各数据目录 README。
+数据按需下载，不提交到仓库。数据准备与许可证信息见
+[benchmark 说明](#benchmarks)、各数据目录 README 和
+[第三方声明（英文）](../../THIRD_PARTY_NOTICES.md)。
 
-### 4. 运行评测
+## 快速开始
+
+配置后端并准备 LongMemEval 数据后，先检查一个对话单元的写入与检索：
+
+```bash
+./scripts/run_lme_eval.sh --lib memos --env .env.memos --version smoke_lme \
+  --streaming 1 --start-idx 0 --end-idx 0 --to-step 2
+```
+
+该命令调用真实后端，可能产生费用。索引范围按对话单元选择，此处只处理第一个单元。
+流式模式（streaming）会写入、检索、保存结果，再删除该单元的后端记忆。
+`--to-step 2` 在答案生成和评分前停止，因此这不是完整 benchmark 分数。
+请使用独立的评测账号。
+
+完整评分运行见[进阶运行](#进阶运行)。各 runner 的 `--help` 也提供选项说明。
+
+## Benchmarks
+
+### LoCoMo
+
+长对话问答，覆盖多跳召回、时序推理和开放域记忆使用。
+复现结果排除对抗性问题。
+详见[数据与许可证说明（英文）](../../data/locomo/README.md)。
+
+### LongMemEval
+
+跨会话长期记忆，覆盖知识更新、时序推理和偏好。
+共享加载器使用 `longmemeval_s_cleaned.json`，对写入和检索一致地清除已知异常特殊字符。
+详见[数据与许可证说明（英文）](../../data/longmemeval/README.md)。
+
+### BEAM
+
+大规模长期记忆问答。Runner 支持 100K（约 128K token）、500K、1M 和 10M
+规模，使用 LLM 对原子事实点（nugget）评分。
+详见[数据与许可证说明（英文）](../../data/beam/README.md)。
+
+<a id="personamem-v2"></a>
+### PersonaMem v2
+
+个性化记忆与偏好感知多选问答。将所选选项与标准答案匹配，不使用 LLM 评分。
+详见[数据与许可证说明（英文）](../../data/personamem_v2/README.md)。
+
+### HaluMem
+
+记忆鲁棒性评测，覆盖幻觉、记忆边界、冲突、多跳推理和动态更新。
+详见[数据与许可证说明（英文）](../../data/halumem/README.md)。
+
+## 进阶运行
+
+<a id="4-运行评测"></a>
+### 完整 benchmark 运行
+
+以下每条命令运行对应 benchmark 配置的数据集，不是小规模检查。
+请先准备相应数据和凭证。
 
 ```bash
 ./scripts/run_locomo_eval.sh --lib memos --env .env.memos
@@ -133,69 +141,104 @@ Benchmark 数据按需下载，不提交到仓库。上游数据许可证和再�
 ./scripts/run_halumem_eval.sh --lib memos --env .env.memos
 ```
 
-使用 runner 的 `--help` 查看接受的选项。共享参数默认值和各 benchmark 的适用范围
-统一维护在 [参数说明](../../env_examples/PARAMETERS.md) 中。
+替换 `memos` 和环境文件即可切换后端。通过 `--version <name>` 隔离运行产物。
+共享默认值与 benchmark 特有选项统一维护在
+[参数说明（英文）](../../env_examples/PARAMETERS.md)。
 
-LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 streaming 模式。在
-streaming 模式下，OmniMemEval 会对每个 benchmark unit 依次执行 add、search、
-保存结果和 delete，再进入下一个 unit。对应 runner 均通过 `--streaming 1` 启用：
+<a id="评测流程"></a>
+### 流程与评分
 
-```bash
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --streaming 1
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --streaming 1
+标准检索模式的流程如下：
+
+```text
+数据集 → 写入（add）→ 检索 → 答案生成 → 评估 → 指标计算 → 报告
+             ↕          ↕
+                记忆后端
 ```
 
-Streaming 模式可配合 `--start-idx`、`--end-idx`、`--restart-unit`、
-`--no-resume` 和 `--skip-failed-streaming` 使用。
+- 写入和检索调用所选适配器的 `add()` 和 `search()`。
+- 答案生成通常使用配置的 OpenAI-compatible 答案模型。
+  后端特有的直接回答模式可能替代或跳过该阶段；提交结果时必须披露所选模式。
+- LoCoMo、LongMemEval 和 HaluMem 使用 LLM 评分，并计算已实现的辅助指标；
+  BEAM 使用基于 LLM 的 nugget 评分；PersonaMem v2 使用选项匹配。
+- Runner 支持阶段检查点和重放（replay）。部分运行不等于完整 benchmark 结果。
 
-Ingestion/search 检查（会调用后端；以下只有 LongMemEval 示例限制为一个数据单元）：
+### 流式与部分运行
 
-```bash
-# LoCoMo：只跑 ingestion 和 search
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos --version smoke_locomo --to-step 2
+LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 `--streaming 1`，
+对每个数据单元依次写入、检索、保存、删除，再处理下一个单元。
+支持 `--start-idx`、`--end-idx`、`--restart-unit`、`--no-resume` 和
+`--skip-failed-streaming`；具体语义以所选 runner 的 `--help` 为准。
 
-# LongMemEval：只跑一个 streaming conversation 到 search
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --version smoke_lme \
-  --streaming 1 --start-idx 0 --end-idx 0 --to-step 2
+`--to-step 2` 可用于写入与检索检查，但它只限制阶段，不限制数据量。
+如果没有显式使用受支持的子集选择参数，仍可能处理整个数据集。
+[快速开始](#快速开始)中的 LongMemEval 示例同时限制了阶段和数据范围。
 
-# BEAM：默认 100K scale，只跑 ingestion 和 search
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --version smoke_beam --to-step 2
+### 重放
 
-# PersonaMem v2：只跑 ingestion 和 search
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --version smoke_pmv2 --to-step 2
-
-# HaluMem：只跑 ingestion 和 search
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --version smoke_hm --to-step 2
-```
-
-从已有结果目录 replay 后续阶段：
+在已有运行中继续后续阶段时，使用相同后端和版本，并保留所需的前序产物。
+例如，从答案生成阶段开始重新执行：
 
 ```bash
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos --replay results/locomo/{LIB}-{VERSION}/
-./scripts/run_lme_eval.sh --lib memos --env .env.memos --replay results/lme/{LIB}-{VERSION}/
-./scripts/run_beam_eval.sh --lib memos --env .env.memos --replay results/beam/{LIB}-{VERSION}/
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos --replay results/pmv2/{LIB}-{VERSION}/
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos --replay results/halumem/{LIB}-{VERSION}/
+./scripts/run_lme_eval.sh --lib memos --env .env.memos \
+  --version existing_run --from-step 3
 ```
 
-## Benchmark 结果
+将 `existing_run` 替换为已有运行版本。显式指定 `--from-step`
+会强制重新执行该阶段及后续阶段。
 
-公开评测结果见 [benchmark results（英文）](./results.md)。该文档整理了
-当前公开 benchmark 链路在 OmniMemEval 统一评测配置下复现的分数、context token
-指标、部署说明、公开参考分数和复现命令。
+相比之下，`--replay` 加载已有实验配置，并创建带时间戳的新运行版本，
+不会把前序产物复制到新目录。完整重放示例：
 
-## 支持的 Memory Backend
+```bash
+./scripts/run_lme_eval.sh --env .env.memos \
+  --replay results/lme/{LIB}-{VERSION}/
+```
 
-公开 adapter 层统一暴露 `add()` / `search()` / `delete()` 接口，覆盖主流
-memory 产品和自托管 memory framework：
+其他 runner 也接受 `--replay`，传入其对应结果目录即可。
+请将 `{LIB}-{VERSION}` 替换为已有后端标识和运行版本，使用上面的
+`--env FILE --replay DIR` 顺序；后端标识和运行设置会从已保存配置恢复，
+无需额外添加 `--lib`。只使用可信配置：重放会将 `experiment_config.sh` 作为 Shell 代码执行。
+提交分数时应记录配置变化，并披露检查点复用或重新评估的情况。
 
-通过 `--lib` 可以在不改 benchmark 阶段、prompt 流程和指标计算的前提下，对不同
-memory 方案运行同一套评测。
+<a id="清理"></a>
+### 清理
 
-| `--lib` | Adapter |
-|---------|---------|
+先预览评测用户 ID，再删除某次运行写入的后端记忆：
+
+```bash
+./scripts/run_memory_clear.sh --lib memos --env .env.memos --version '<run-version>' --datasets locomo,lme,beam,pmv2,hm --dry-run
+./scripts/run_memory_clear.sh --lib memos --env .env.memos --version '<run-version>' --datasets locomo,lme,beam,pmv2,hm --yes
+```
+
+请将 `<run-version>` 替换为目标运行版本。`--dry-run` 不删除数据；实际删除必须传入 `--yes`。
+清理非默认 BEAM 或 HaluMem 数据时，根据需要使用可重复的 `--beam-scale`
+或 `--halumem-variant`。请核对账号和运行版本。
+
+<a id="benchmark-结果"></a>
+## 输出与结果
+
+产物按后端标识和运行版本写入以下目录：
+
+| Benchmark | 结果目录 |
+|---|---|
+| LoCoMo | `results/locomo/{LIB}-{VERSION}/` |
+| LongMemEval | `results/lme/{LIB}-{VERSION}/` |
+| BEAM | `results/beam/{LIB}-{VERSION}/` |
+| PersonaMem v2 | `results/pmv2/{LIB}-{VERSION}/` |
+| HaluMem | `results/halumem/{LIB}-{VERSION}/` |
+
+[评测结果](./results_zh.md)提供公开快照、评测配置、汇总规则和上下文 token 定义的入口。
+统一流程复现结果（Reproduced Results）与公开参考结果（Published Reference Results）
+的证据要求和可比性不同，不应混用。
+
+<a id="支持的-memory-backend"></a>
+## 扩展与贡献
+
+适配器层提供通用写入、检索操作和用户级清理。支持以下后端标识：
+
+| `--lib` | 后端 |
+|---|---|
 | `memos` | MemOS |
 | `mem0` | Mem0 |
 | `zep` | Zep |
@@ -212,135 +255,27 @@ memory 方案运行同一套评测。
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
 
-新增后端时，请遵循 [adapter 接入清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)。
+接入、配置、隔离与测试要求见
+[适配器清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)，
+分数提交要求见
+[结果提交规范（英文）](../../CONTRIBUTING.md#submitting-benchmark-results)。
+<a id="项目结构"></a>
+代码、配置与数据准备脚本的位置见根目录的[仓库结构](../../README_zh.md#目录结构)。
 
-## Benchmarks
+<a id="验证"></a>
+## 验证与许可证
 
-<a id="locomo"></a>
-### LoCoMo
-
-LoCoMo 评估长对话记忆、多跳推理和时序记忆。数据说明见
-[data/locomo/README.md](../../data/locomo/README.md)。
-
-```bash
-./scripts/run_locomo_eval.sh --lib memos --env .env.memos
-```
-
-结果目录：`results/locomo/{LIB}-{VERSION}/`
-
-<a id="longmemeval"></a>
-### LongMemEval
-
-LongMemEval 评估跨 session 长期记忆。OmniMemEval 通过共享 loader 读取
-`longmemeval_s_cleaned.json`，并对 ingestion 和 search 使用同一份清洗后的数据。
-数据说明见 [data/longmemeval/README.md](../../data/longmemeval/README.md)。
+在独立的 Python 3.11 或 3.12 开发环境运行离线检查：
 
 ```bash
-./scripts/run_lme_eval.sh --lib memos --env .env.memos
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+python scripts/check_doc_links.py
 ```
 
-结果目录：`results/lme/{LIB}-{VERSION}/`
+[测试指南（英文）](../../scripts/tests/README.md)区分离线测试、仓库检查和真实后端集成测试。
+离线 CI 不验证 benchmark 分数，也不调用真实服务。
 
-<a id="beam"></a>
-### BEAM
-
-BEAM 评估 128K、500K、1M 和 10M token 规模下的长期记忆能力，采用
-per-nugget LLM-as-Judge 评分。数据说明见
-[data/beam/README.md](../../data/beam/README.md)。
-
-```bash
-./scripts/run_beam_eval.sh --lib memos --env .env.memos
-```
-
-结果目录：`results/beam/{LIB}-{VERSION}/`
-
-<a id="personamem-v2"></a>
-### PersonaMem v2
-
-PersonaMem v2 评估个性化记忆和偏好感知多选问答。数据说明见
-[data/personamem_v2/README.md](../../data/personamem_v2/README.md)。
-
-```bash
-./scripts/run_pmv2_eval.sh --lib memos --env .env.memos
-```
-
-结果目录：`results/pmv2/{LIB}-{VERSION}/`
-
-<a id="halumem"></a>
-### HaluMem
-
-HaluMem 评估记忆幻觉、冲突处理、动态更新和记忆边界鲁棒性。数据说明见
-[data/halumem/README.md](../../data/halumem/README.md)。
-
-```bash
-./scripts/run_halumem_eval.sh --lib memos --env .env.memos
-```
-
-结果目录：`results/halumem/{LIB}-{VERSION}/`
-
-## 清理
-
-删除某次评测写入的后端 memory：
-
-```bash
-./scripts/run_memory_clear.sh --lib memos --env .env.memos --version <name> --datasets locomo,lme,beam,pmv2,hm --dry-run
-./scripts/run_memory_clear.sh --lib memos --env .env.memos --version <name> --datasets locomo,lme,beam,pmv2,hm --yes
-```
-
-`--dry-run` 只打印目标 id；实际删除必须显式传入 `--yes`。清理非默认 BEAM 或 HaluMem 数据时，可配合可重复的 `--beam-scale` 和 `--halumem-variant` 使用。
-
-## 项目结构
-
-```text
-OmniMemEval/
-├── data/
-│   ├── beam/
-│   ├── halumem/
-│   ├── locomo/
-│   ├── longmemeval/
-│   └── personamem_v2/
-├── docs/
-│   └── user_memory/
-│       ├── README.md
-│       ├── README_zh.md
-│       └── results.md
-├── env_examples/
-├── scripts/
-│   ├── client_factory/
-│   ├── beam/
-│   ├── halumem/
-│   ├── locomo/
-│   ├── longmemeval/
-│   ├── personamem_v2/
-│   ├── tests/
-│   ├── utils/
-│   ├── run_beam_eval.sh
-│   ├── run_halumem_eval.sh
-│   ├── run_locomo_eval.sh
-│   ├── run_lme_eval.sh
-│   ├── run_pmv2_eval.sh
-│   └── run_memory_clear.sh
-├── README.md
-├── README_zh.md
-├── THIRD_PARTY_NOTICES.md
-├── requirements_user_memory.txt  # User Memory 依赖
-└── requirements_agentbench.txt   # AgentBench 依赖
-```
-
-## 验证
-
-```bash
-git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
-conda run -n omnimemeval python -m compileall -q scripts data
-conda run -n omnimemeval python -m pip install -r requirements-dev.txt
-conda run -n omnimemeval python -m pytest -q
-```
-
-离线测试、CI 检查和后端集成 smoke test 的区别见
-[测试指南](../../scripts/tests/README.md)。
-
-## License
-
-见 [LICENSE](../../LICENSE)。第三方 benchmark 数据保留其上游许可证；OmniMemEval
-代码许可证不重新授权外部数据集。详见
-[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)。
+<a id="license"></a>
+代码许可证见 [LICENSE](../../LICENSE)。外部数据集保留上游许可证，详见
+[THIRD_PARTY_NOTICES.md（英文）](../../THIRD_PARTY_NOTICES.md)。

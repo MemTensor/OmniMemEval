@@ -1,7 +1,11 @@
-# Benchmark Results
+<a id="benchmark-results"></a>
+# User Memory Evaluation Results
 
-[User Memory Evaluation guide](./README.md) ·
-[Documentation index](../README.md)
+[中文版](./results_zh.md) · [Documentation index](../README.md) ·
+[Guide](./README.md)
+
+This page is the canonical source for numeric result tables; the Chinese page
+provides translated explanations and links to the same tables.
 
 This document provides a public result snapshot for OmniMemEval's current
 benchmark pipelines. The reproduced scores were generated under one evaluation
