@@ -142,19 +142,9 @@ files for upstream dataset licenses and redistribution notes.
 ./scripts/run_halumem_eval.sh --lib memos --env .env.memos
 ```
 
-Useful shared options:
-
-| Option | Purpose |
-|--------|---------|
-| `--version <name>` | Result directory suffix. Defaults to `omnimemeval_<date>`. |
-| `--from-step N` / `--to-step N` | Run a subset of pipeline steps. |
-| `--replay <result_dir>` | Recompute later stages from an existing result directory. |
-| `--top-k N` | Search result count. Overrides `TOPK` from the env file. |
-| `--llm-workers N` | Concurrent answer/eval LLM workers. |
-| `--allow-empty-search 1` | Allow successful runs with no raw memory returned. |
-| `--skip-failed-search 1` | Mark failed search items as skipped instead of failing the step. |
-| `--skip-failed-answer 1` | Mark failed answer items as skipped instead of failing the step. |
-| `--skip-failed-judge 1` | Mark failed judge items as skipped instead of failing the step. |
+Use `--help` on a runner for its accepted options. Shared defaults and
+benchmark-specific applicability are maintained in the
+[parameter reference](../../env_examples/PARAMETERS.md).
 
 Streaming mode is available for LongMemEval, BEAM, PersonaMem v2, and
 HaluMem. In streaming mode, OmniMemEval runs add, search, save, and delete for
@@ -171,7 +161,8 @@ corresponding runner:
 Streaming runs support `--start-idx`, `--end-idx`, `--restart-unit`,
 `--no-resume`, and `--skip-failed-streaming`.
 
-Minimal smoke commands:
+Ingestion/search checks (these call the backend; only the LongMemEval example
+below limits the dataset to one unit):
 
 ```bash
 # LoCoMo: run ingestion and search only
@@ -234,6 +225,8 @@ without changing the benchmark stages, prompt flow, or metric calculation.
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
+
+To contribute a backend, follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter).
 
 ## Benchmarks
 

@@ -119,7 +119,7 @@ Run the following commands from the repository root:
 
 ```bash
 mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
+hf download EverMind-AI/EvoAgentBench \
   --repo-type dataset \
   --local-dir ./data/agentbench
 ```
@@ -135,6 +135,8 @@ data/agentbench/
   swebench/
 ```
 
+The `hf` CLI is provided by `huggingface_hub`; see the
+[upstream CLI guide](https://huggingface.co/docs/huggingface_hub/en/guides/cli).
 Domain data paths are configured under `configs/agentbench/domains/*.yaml`. If a custom data location is used, update the relevant domain yaml fields.
 
 LiveCodeBench requires its official verifier package:
@@ -164,19 +166,18 @@ systemctl start docker
 
 ## Quick Start
 
-Reasoning smoke run:
+After completing environment, credentials, and data preparation above, run one
+reasoning task. `--test-split 1` selects the first test question for this domain;
+omit it to evaluate the complete test split. `--parallel` controls concurrency,
+not the number of selected tasks.
 
 ```bash
-cp env_examples/.env.agent .env.agent
-mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
-  --repo-type dataset \
-  --local-dir ./data/agentbench
 ./scripts/run_agent_eval.sh \
   --agent openclaw \
   --domain reasoning \
   --protocol test_only \
   --version smoke_agentbench \
+  --test-split 1 \
   --trials 1 \
   --parallel 1
 ```

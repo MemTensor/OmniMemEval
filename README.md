@@ -9,24 +9,6 @@ OmniMemEval is an evaluation framework for memory systems and memory-augmented a
 | User Memory Evaluation | Memory backend APIs exposed through `add()` and `search()` | LoCoMo, LongMemEval, BEAM, PersonaMem v2, HaluMem | [docs/user_memory/README.md](./docs/user_memory/README.md) |
 | Agent Memory Evaluation | Agent runtimes equipped with memory plugins | AgentBench domains: reasoning, information retrieval, knowledge work, code implementation, software engineering | [docs/agent_memory/README.md](./docs/agent_memory/README.md) |
 
-## Evaluation Tracks
-
-### User Memory Evaluation
-
-User Memory Evaluation measures the capability of memory backend systems through a standardized API adapter layer. The same benchmark pipeline can be run against mainstream memory products, self-hosted memory frameworks, or custom adapters by selecting a backend with `--lib`.
-
-The pipeline covers ingestion, retrieval, answer generation, LLM-as-Judge evaluation, metric aggregation, and report generation. Results are written under `results/<benchmark>/<LIB>-<VERSION>/`.
-
-Start here: [docs/user_memory/README.md](./docs/user_memory/README.md)
-
-### Agent Memory Evaluation
-
-Agent Memory Evaluation measures the task performance of an agent runtime after a memory plugin is installed. The current implementation is based on AgentBench and evaluates OpenClaw across five task domains. The memory-plugin protocol includes memory cleanup, training, memory settling, backup, restore, and test execution.
-
-Results are written under `results/agentbench/`.
-
-Start here: [docs/agent_memory/README.md](./docs/agent_memory/README.md)
-
 ## Installation
 
 User Memory Evaluation and Agent Memory Evaluation use separate environments. For User Memory Evaluation, create the base Python environment from the repository root:
@@ -59,6 +41,13 @@ Each evaluation track may require additional dependencies:
 
 ```bash
 cp env_examples/.env.memos .env.memos
+```
+
+Fill in the memory backend credentials and `ANSWER_*` / `EVAL_*` model settings
+in `.env.memos` before continuing. Then prepare data and run the full LoCoMo
+evaluation (this calls the configured backend and model APIs):
+
+```bash
 python data/locomo/prepare_locomo.py
 ./scripts/run_locomo_eval.sh --lib memos --env .env.memos
 ```
@@ -67,14 +56,22 @@ python data/locomo/prepare_locomo.py
 
 ```bash
 cp env_examples/.env.agent .env.agent
+```
+
+Complete the OpenClaw setup and credentials in the
+[Agent Memory guide](./docs/agent_memory/README.md), then run one reasoning
+task as a smoke check:
+
+```bash
 mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
+hf download EverMind-AI/EvoAgentBench \
   --repo-type dataset \
   --local-dir ./data/agentbench
 ./scripts/run_agent_eval.sh \
   --agent openclaw \
   --domain reasoning \
   --protocol test_only \
+  --test-split 1 \
   --version smoke_agentbench \
   --trials 1 \
   --parallel 1
@@ -109,7 +106,14 @@ scripts/
   utils/                      # Shared utilities
 requirements_user_memory.txt  # User Memory Evaluation dependencies
 requirements_agentbench.txt   # Agent Memory Evaluation dependencies
+requirements-dev.txt          # Offline tests and development checks
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch/PR workflow, adapter
+integration, and benchmark-result submission requirements. The
+[test guide](./scripts/tests/README.md) documents offline checks and CI.
 
 ## License
 

@@ -38,7 +38,7 @@ AgentBench 使用 EverMind（Hugging Face/GitHub namespace: `EverMind-AI`）发�
 
 ```bash
 mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
+hf download EverMind-AI/EvoAgentBench \
   --repo-type dataset \
   --local-dir ./data/agentbench
 ```
@@ -54,6 +54,8 @@ data/agentbench/
   swebench/
 ```
 
+`hf` CLI 随 `huggingface_hub` 提供，详见
+[上游 CLI 指南](https://huggingface.co/docs/huggingface_hub/en/guides/cli)。
 各域数据路径由 `configs/agentbench/domains/*.yaml` 管理。若采用自定义数据目录，请同步更新相应 domain yaml 中的 `data_path`、`train_file`、`test_file`、`repo_root` 或同类字段。
 
 LiveCodeBench 域依赖官方 verifier 包：
@@ -206,7 +208,9 @@ results/agentbench/
 
 ### `test_only`
 
-执行 test split，适用于 baseline smoke test 或单域功能验证。
+以下命令执行完整 test split。需要单任务 reasoning smoke 检查时，追加
+`--test-split 1` 以选择第一道测试题；`--parallel` 只控制并发，不限制题数。
+运行前完成上文的环境、凭证和数据准备。
 
 ```bash
 ./scripts/run_agent_eval.sh \

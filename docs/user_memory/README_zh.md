@@ -133,19 +133,8 @@ Benchmark 数据按需下载，不提交到仓库。上游数据许可证和再�
 ./scripts/run_halumem_eval.sh --lib memos --env .env.memos
 ```
 
-常用参数：
-
-| 参数 | 用途 |
-|------|------|
-| `--version <name>` | 结果目录后缀，默认 `omnimemeval_<date>`。 |
-| `--from-step N` / `--to-step N` | 只运行部分阶段。 |
-| `--replay <result_dir>` | 从已有结果目录重算后续阶段。 |
-| `--top-k N` | 检索数量，覆盖 env 中的 `TOPK`。 |
-| `--llm-workers N` | Answer/Eval LLM 并发数。 |
-| `--allow-empty-search 1` | 允许 raw memory 为空的 search 结果通过。 |
-| `--skip-failed-search 1` | search 失败时标记 skipped，而不是失败退出。 |
-| `--skip-failed-answer 1` | answer 失败时标记 skipped，而不是失败退出。 |
-| `--skip-failed-judge 1` | judge 失败时标记 skipped，而不是失败退出。 |
+使用 runner 的 `--help` 查看接受的选项。共享参数默认值和各 benchmark 的适用范围
+统一维护在 [参数说明](../../env_examples/PARAMETERS.md) 中。
 
 LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 streaming 模式。在
 streaming 模式下，OmniMemEval 会对每个 benchmark unit 依次执行 add、search、
@@ -161,7 +150,7 @@ streaming 模式下，OmniMemEval 会对每个 benchmark unit 依次执行 add�
 Streaming 模式可配合 `--start-idx`、`--end-idx`、`--restart-unit`、
 `--no-resume` 和 `--skip-failed-streaming` 使用。
 
-最小 smoke 命令：
+Ingestion/search 检查（会调用后端；以下只有 LongMemEval 示例限制为一个数据单元）：
 
 ```bash
 # LoCoMo：只跑 ingestion 和 search
@@ -222,6 +211,8 @@ memory 方案运行同一套评测。
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
+
+新增后端时，请遵循 [adapter 接入清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)。
 
 ## Benchmarks
 

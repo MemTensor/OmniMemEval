@@ -19,4 +19,5 @@ OmniMemEval 包含两条互补的评测线。请根据待评测对象选择对�
   [env_examples/README.md](../env_examples/README.md) 和
   [env_examples/PARAMETERS.md](../env_examples/PARAMETERS.md)
 - 测试命令：[scripts/tests/README.md](../scripts/tests/README.md)
+- 开发与结果提交规范：[CONTRIBUTING.md（英文）](../CONTRIBUTING.md)
 - 第三方归属：[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)

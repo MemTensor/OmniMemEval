@@ -9,24 +9,6 @@ OmniMemEval 是面向记忆系统和记忆增强 Agent 的评测框架，当前�
 | User Memory Evaluation | 通过 `add()` 和 `search()` 暴露能力的 memory backend API | LoCoMo、LongMemEval、BEAM、PersonaMem v2、HaluMem | [docs/user_memory/README_zh.md](./docs/user_memory/README_zh.md) |
 | Agent Memory Evaluation | 安装记忆插件后的 Agent Runtime | AgentBench domains：reasoning、information retrieval、knowledge work、code implementation、software engineering | [docs/agent_memory/README_zh.md](./docs/agent_memory/README_zh.md) |
 
-## 评测线
-
-### User Memory Evaluation
-
-User Memory Evaluation 通过统一 adapter 层评估 memory backend 系统能力。使用 `--lib` 可以在同一套 benchmark pipeline 下切换不同 memory 产品、自托管 memory framework 或自定义 adapter。
-
-该流程覆盖写入、检索、答案生成、LLM-as-Judge 评估、指标聚合和报告生成。结果写入 `results/<benchmark>/<LIB>-<VERSION>/`。
-
-入口文档：[docs/user_memory/README_zh.md](./docs/user_memory/README_zh.md)
-
-### Agent Memory Evaluation
-
-Agent Memory Evaluation 评估安装记忆插件后的 Agent Runtime 在任务域中的实际表现。当前实现基于 AgentBench，评估 OpenClaw 在五个任务域上的能力。记忆插件协议包含记忆清理、训练、沉淀、备份、恢复和测试执行。
-
-结果写入 `results/agentbench/`。
-
-入口文档：[docs/agent_memory/README_zh.md](./docs/agent_memory/README_zh.md)
-
 ## 安装
 
 User Memory Evaluation 和 Agent Memory Evaluation 使用两套独立环境。User Memory Evaluation 可在仓库根目录创建基础 Python 环境：
@@ -59,6 +41,12 @@ OpenClaw、系统包和各 domain 的额外安装步骤详见 [docs/agent_memory
 
 ```bash
 cp env_examples/.env.memos .env.memos
+```
+
+先在 `.env.memos` 中填写后端凭证和 `ANSWER_*` / `EVAL_*` 模型配置，再准备数据并
+运行完整 LoCoMo 评测。以下命令会调用配置的后端和模型 API：
+
+```bash
 python data/locomo/prepare_locomo.py
 ./scripts/run_locomo_eval.sh --lib memos --env .env.memos
 ```
@@ -67,14 +55,21 @@ python data/locomo/prepare_locomo.py
 
 ```bash
 cp env_examples/.env.agent .env.agent
+```
+
+按 [Agent Memory 指南](./docs/agent_memory/README_zh.md) 完成 OpenClaw 安装和凭证
+配置后，使用一个 reasoning 任务进行 smoke 检查：
+
+```bash
 mkdir -p data/agentbench
-huggingface-cli download EverMind-AI/EvoAgentBench \
+hf download EverMind-AI/EvoAgentBench \
   --repo-type dataset \
   --local-dir ./data/agentbench
 ./scripts/run_agent_eval.sh \
   --agent openclaw \
   --domain reasoning \
   --protocol test_only \
+  --test-split 1 \
   --version smoke_agentbench \
   --trials 1 \
   --parallel 1
@@ -109,7 +104,14 @@ scripts/
   utils/                      # 通用工具
 requirements_user_memory.txt  # User Memory Evaluation 依赖
 requirements_agentbench.txt   # Agent Memory Evaluation 依赖
+requirements-dev.txt          # 离线测试和开发检查依赖
 ```
+
+## 参与贡献
+
+分支和 PR 流程、adapter 接入及评测结果提交要求见
+[贡献指南（英文）](./CONTRIBUTING.md)。离线检查和 CI 用法见
+[测试指南（英文）](./scripts/tests/README.md)。
 
 ## License
 

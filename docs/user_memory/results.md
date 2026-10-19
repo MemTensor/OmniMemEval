@@ -307,3 +307,9 @@ results/halumem/{LIB}-{VERSION}/
 Benchmark datasets are downloaded on demand and are not committed to this
 repository. See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) for dataset
 license information.
+
+## Contributing Results
+
+See the [result submission requirements](../../CONTRIBUTING.md#submitting-benchmark-results)
+for required evidence, aggregation details, and the distinction between
+Published Reference Results and Reproduced Results.

@@ -20,4 +20,5 @@ Related documentation remains next to the files it describes:
   [env_examples/README.md](../env_examples/README.md) and
   [env_examples/PARAMETERS.md](../env_examples/PARAMETERS.md)
 - Test commands: [scripts/tests/README.md](../scripts/tests/README.md)
+- Contribution and result submission rules: [CONTRIBUTING.md](../CONTRIBUTING.md)
 - Third-party attribution: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)

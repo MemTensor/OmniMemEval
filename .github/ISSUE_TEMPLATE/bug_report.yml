@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a reproducible code or documentation problem.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Expected and actual behavior
+      description: Explain the difference. Include file/section links for documentation issues.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the command and a minimal input/configuration with credentials removed.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Repository commit, OS, Python version, benchmark/backend, and relevant dependency versions.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Remove API keys, private endpoints, and private conversation data before posting.
+      render: text
