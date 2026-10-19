@@ -388,10 +388,14 @@ OmniMemEval/
 ## Verification
 
 ```bash
-bash -n scripts/_experiment_utils.sh scripts/run_*_eval.sh scripts/run_memory_clear.sh
+git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
 conda run -n omnimemeval python -m compileall -q scripts data
-conda run -n omnimemeval python -m unittest discover -s scripts/tests -p 'test_*.py'
+conda run -n omnimemeval python -m pip install -r requirements-dev.txt
+conda run -n omnimemeval python -m pytest -q
 ```
+
+See the [test guide](../../scripts/tests/README.md) for offline suites, CI checks,
+and backend integration smoke tests.
 
 ## License
 

@@ -339,10 +339,14 @@ OmniMemEval/
 ## 验证
 
 ```bash
-bash -n scripts/_experiment_utils.sh scripts/run_*_eval.sh scripts/run_memory_clear.sh
+git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
 conda run -n omnimemeval python -m compileall -q scripts data
-conda run -n omnimemeval python -m unittest discover -s scripts/tests -p 'test_*.py'
+conda run -n omnimemeval python -m pip install -r requirements-dev.txt
+conda run -n omnimemeval python -m pytest -q
 ```
+
+离线测试、CI 检查和后端集成 smoke test 的区别见
+[测试指南](../../scripts/tests/README.md)。
 
 ## License
 

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    name: Offline tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run offline tests
+        run: python -m pytest -q
+
+  repository-checks:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check Python syntax
+        run: python -m compileall -q scripts data
+      - name: Check every tracked shell script
+        shell: bash
+        run: |
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(git ls-files -z '*.sh')
+      - name: Check relative documentation links
+        run: python scripts/check_doc_links.py

@@ -1,0 +1,13 @@
+# Dependencies for the offline unit and pipeline-contract tests.
+# Install a track's runtime requirements separately for real evaluations.
+pytest>=8,<10
+numpy
+pandas
+openpyxl
+openai
+requests
+python-dotenv
+PyYAML
+rich
+tqdm
+tiktoken
