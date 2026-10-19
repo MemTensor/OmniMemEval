@@ -222,7 +222,7 @@ memory 方案运行同一套评测。
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
-| `lcmx` | LCM-X |
+| `lcmx` | [LCM-X 安装与运行配置](./lcmx.md) |
 
 ## Benchmarks
 

@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 from .base_client import env_int, env_str, require_env
 
-
 _DEFAULT_FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"
 
 # One warmed embedder per process (FastEmbed loads an ONNX model; ingestion
@@ -21,11 +20,15 @@ _USER_LOCKS_GUARD = threading.Lock()
 _WARNED = set()
 
 
-def _safe(value):
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip("-._") or "user"
+def _validate_user_id(user_id):
+    rule = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}"
+    if not isinstance(user_id, str) or re.fullmatch(rule, user_id) is None:
+        raise ValueError(f"user_id must fullmatch {rule}")
+    return user_id
 
 
 def _user_lock(user_id):
+    user_id = _validate_user_id(user_id)
     with _USER_LOCKS_GUARD:
         return _USER_LOCKS.setdefault(user_id, threading.Lock())
 
@@ -139,7 +142,7 @@ class LcmxClient:
     # -- store helpers --------------------------------------------------------
 
     def _user_dir(self, user_id):
-        return self._db_root / _safe(user_id)
+        return self._db_root / _validate_user_id(user_id)
 
     def _db_path(self, user_id):
         return self._user_dir(user_id) / "lcm.db"
@@ -199,6 +202,7 @@ class LcmxClient:
             timestamp: Optional ISO-8601 event time used when a message has
                 no ``chat_time``.
         """
+        user_id = _validate_user_id(user_id)
         if not messages:
             return
         session_key = (
@@ -220,7 +224,7 @@ class LcmxClient:
         with _user_lock(user_id):
             sessions = self._load_sessions(user_id)
             order = len(sessions) + 1
-            session_id = str(session_key) if session_key else f"{_safe(user_id)}-s{order}"
+            session_id = str(session_key) if session_key else f"{user_id}-s{order}"
             if session_id in sessions:
                 session_id = f"{session_id}#{order}"
 
@@ -236,7 +240,7 @@ class LcmxClient:
                 rows_in.append(row)
             session_time = next((r["timestamp"] for r in rows_in if r.get("timestamp")), None)
 
-            config, store, dag, vector_store = self._open(user_id)
+            _config, store, dag, vector_store = self._open(user_id)
             try:
                 store_ids = store.append_batch(
                     session_id, rows_in, source="benchmark", conversation_id=session_id
@@ -297,6 +301,7 @@ class LcmxClient:
 
     def search(self, query, user_id, top_k):
         """Run ``lcm_recall`` and return one ``[event_time] text`` line per hit."""
+        user_id = _validate_user_id(user_id)
         if not self._db_path(user_id).exists():
             return ""
         import hermes_lcm.tools as lcm_tools
@@ -310,7 +315,7 @@ class LcmxClient:
                 _hermes_home=str(self._user_dir(user_id)),
                 # Disjoint from every ingested session so the scope prior never
                 # lifts an evidence session.
-                current_session_id=f"__lcmx_omnimemeval_probe__{_safe(user_id)}",
+                current_session_id=f"__lcmx_omnimemeval_probe__{user_id}",
             )
             if self._embeddings:
                 cache_key = (self._provider_name, str(self._embedder.model_id).strip())
@@ -365,8 +370,10 @@ class LcmxClient:
     # -- delete ---------------------------------------------------------------
 
     def delete_all(self, user_id):
+        user_id = _validate_user_id(user_id)
         with _user_lock(user_id):
             shutil.rmtree(self._user_dir(user_id), ignore_errors=True)
 
     def delete(self, user_id):
+        user_id = _validate_user_id(user_id)
         self.delete_all(user_id)

@@ -234,7 +234,7 @@ without changing the benchmark stages, prompt flow, or metric calculation.
 | `memorylake` | MemoryLake |
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
-| `lcmx` | LCM-X |
+| `lcmx` | [LCM-X setup and run configuration](./lcmx.md) |
 
 ## Benchmarks
 
