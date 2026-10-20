@@ -20,7 +20,7 @@ Unless a product-specific table is present below, the corresponding
 | `--workers` | `2` | ingestion/search | Memory API worker count. |
 | `--top-k` | `TOPK` or `20` | search | Number of search results requested from the memory backend. |
 | `--llm-workers` | `LLM_WORKERS` or `10` | answer/eval | Concurrent LLM workers. |
-| `--num-runs` | `1` | BEAM, PersonaMem v2, HaluMem | Number of answer or judge repetitions, depending on benchmark. |
+| `--num-runs` | `1` | all five User Memory benchmarks | Number of answer repetitions for PersonaMem v2, or judge repetitions for LoCoMo, LongMemEval, BEAM, and HaluMem. |
 | `--save-model-input` | `0` | answer | Save response-stage model input for inspection. |
 | `--allow-empty-search` | `1` | search | Allow successful records when no raw memories are returned. |
 | `--skip-failed-search` | `0` | search | Mark failed search records as skipped instead of failing the step. |
@@ -92,7 +92,7 @@ inspect target ids.
 
 | Benchmark | Data path | Notes |
 |-----------|-----------|-------|
-| LoCoMo | `data/locomo/locomo10.json` | Included with upstream license notes. |
+| LoCoMo | `data/locomo/locomo10.json` | Download with `python data/locomo/prepare_locomo.py`; see its dataset README for license notes. |
 | LongMemEval | `data/longmemeval/longmemeval_s_cleaned.json` | Download with `python data/longmemeval/prepare_longmemeval.py`. |
 | BEAM | `data/beam/beam_100k.json` | Default 100K scale; prepare script can download additional scales. |
 | PersonaMem v2 | `data/personamem_v2/benchmark/text/benchmark.csv` and `data/personamem_v2/data/chat_history_32k/` | Download with `python data/personamem_v2/prepare_personamem.py`. |

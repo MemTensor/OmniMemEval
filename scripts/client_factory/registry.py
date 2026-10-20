@@ -1,11 +1,13 @@
 """Central registry of supported memory framework libraries.
 
-Add new libraries here — all evaluation scripts import SUPPORTED_LIBS
-from this module, so a single change propagates everywhere.
+All evaluation scripts import SUPPORTED_LIBS from this module. Registration
+exposes the client key; search, ingestion, and cleanup integration must also
+match the backend's behavior.
 
 When adding a new lib:
   1. Add a Client class in scripts/client_factory/<name>_client.py
   2. Register it in _LIB_CLIENT_REGISTRY below  (module_name, class_name)
+  3. Follow CONTRIBUTING.md for dispatch, configuration, docs, and tests
 """
 
 from importlib import import_module

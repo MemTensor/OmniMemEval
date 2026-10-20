@@ -1,8 +1,7 @@
 # Agent Memory Evaluation Architecture
 
-[中文版](./architecture_zh.md)
-
-[Documentation index](../README.md)
+[中文版](./architecture_zh.md) · [Documentation index](../README.md) ·
+[Guide](./README.md) · [Results](./results.md)
 
 This document describes the current Agent Memory Evaluation architecture and
 its public extension contracts. Operational setup and evaluation commands remain
@@ -13,7 +12,7 @@ in the [Agent Memory Evaluation guide](./README.md).
 Agent Memory Evaluation evaluates the following combination:
 
 ```text
-Agent Runtime + Memory Plugin + Task Domain + Verifier
+Agent Runtime + Optional Memory Plugin + Task Domain + Verifier
 ```
 
 The AgentBench entrypoint owns protocol and memory-lifecycle ordering, while the

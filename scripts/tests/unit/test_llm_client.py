@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -125,7 +126,9 @@ class TestLLMClientRetry(unittest.TestCase):
         self.assertEqual(answer["usage_reported_call_count"], 1)
         self.assertEqual(answer["estimated_prompt_call_count"], 0)
 
-    def test_sync_completion_estimates_prompt_tokens_when_usage_is_partial(self):
+    @patch("utils.llm_client._get_encoding")
+    def test_sync_completion_estimates_prompt_tokens_when_usage_is_partial(self, get_encoding):
+        get_encoding.return_value.encode.return_value = [1, 2, 3]
         tracker = TokenTracker()
         completions = FakeSyncCompletions([], response=FakePartialUsageResponse())
         tracked = _TrackedSyncCompletions(completions, tracker, _config())
@@ -134,13 +137,15 @@ class TestLLMClientRetry(unittest.TestCase):
         answer = tracker.summary()["modules"]["ANSWER"]
 
         self.assertEqual(answer["call_count"], 1)
-        self.assertGreater(answer["prompt_tokens"], 0)
+        self.assertEqual(answer["prompt_tokens"], 3)
         self.assertEqual(answer["completion_tokens"], 3)
         self.assertEqual(answer["usage_reported_call_count"], 1)
         self.assertEqual(answer["estimated_prompt_call_count"], 1)
         self.assertEqual(answer["estimated_prompt_tokens"], answer["prompt_tokens"])
 
-    def test_sync_completion_estimates_prompt_tokens_when_usage_missing(self):
+    @patch("utils.llm_client._get_encoding")
+    def test_sync_completion_estimates_prompt_tokens_when_usage_missing(self, get_encoding):
+        get_encoding.return_value.encode.return_value = [1, 2, 3, 4, 5, 6, 7]
         tracker = TokenTracker()
         completions = FakeSyncCompletions([])
         tracked = _TrackedSyncCompletions(completions, tracker, _config())
@@ -155,7 +160,7 @@ class TestLLMClientRetry(unittest.TestCase):
         answer = tracker.summary()["modules"]["ANSWER"]
 
         self.assertEqual(answer["call_count"], 1)
-        self.assertGreater(answer["prompt_tokens"], 0)
+        self.assertEqual(answer["prompt_tokens"], 7)
         self.assertEqual(answer["usage_reported_call_count"], 0)
         self.assertEqual(answer["estimated_prompt_call_count"], 1)
         self.assertEqual(answer["estimated_prompt_tokens"], answer["prompt_tokens"])

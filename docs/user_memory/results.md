@@ -1,7 +1,11 @@
-# Benchmark Results
+<a id="benchmark-results"></a>
+# User Memory Evaluation Results
 
-[User Memory Evaluation guide](./README.md) ·
-[Documentation index](../README.md)
+[中文版](./results_zh.md) · [Documentation index](../README.md) ·
+[Guide](./README.md)
+
+This page is the canonical source for numeric result tables; the Chinese page
+provides translated explanations and links to the same tables.
 
 This document provides a public result snapshot for OmniMemEval's current
 benchmark pipelines. The reproduced scores were generated under one evaluation
@@ -204,6 +208,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | Mem0 | 64.1 | 6,719 | 48.6 | 6,914 | [mem0.ai research](https://mem0.ai/research) |
 | Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
 | past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
+| OpenWay.ai | 75.07 | 5,366 | - | - | [OpenWay.ai BEAM-100K runs](https://github.com/andrei2084k-prog/openway.ai-beam-100k) (OmniMemEval harness at `0b1ea8d`; latest run, on a newer version of OpenWay.ai) |
 
 ## PersonaMem v2
 
@@ -314,3 +319,9 @@ results/halumem/{LIB}-{VERSION}/
 Benchmark datasets are downloaded on demand and are not committed to this
 repository. See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) for dataset
 license information.
+
+## Contributing Results
+
+See the [result submission requirements](../../CONTRIBUTING.md#submitting-benchmark-results)
+for required evidence, aggregation details, and the distinction between
+Published Reference Results and Reproduced Results.
