@@ -21,7 +21,8 @@ documented setup or default parameters are welcome.
 
 ## Evaluation Setup
 
-All reproduced runs used the same baseline evaluation configuration:
+The baseline requested evaluation configuration is below. Contributor-run
+endpoint and model-resolution limitations are disclosed alongside their rows.
 
 | Component | Configuration |
 | --- | --- |
@@ -67,7 +68,20 @@ the reproduced OmniMemEval scores.
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | - | 33.96 | 81.68 |
 
-LCM-X rows were produced by the LCM-X maintainers with this repository's unchanged pipeline, prompts, answer model and judge model, using the `lcmx` adapter (LCM-X v0.28.0, local fastembed `BAAI/bge-small-en-v1.5` embeddings, top-k 20). BEAM 10M has not been run yet.
+LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
+and prompts on **2026-10-18** with OmniMemEval harness commit
+[`162640314863db64b5af62138b5b81776516d1ff`](https://github.com/electricsheephq/OmniMemEval/tree/162640314863db64b5af62138b5b81776516d1ff),
+using the `lcmx` adapter (LCM-X v0.28.0-rc1, executable code identical to
+v0.28.0, local fastembed `BAAI/bge-small-en-v1.5` embeddings, top-k 20).
+The [public evidence release and manifest archive](https://github.com/electricsheephq/OmniMemEval/releases/tag/lcmx-v0.28.0-results-20261018)
+has archive SHA-256 `af4eebcb0909a86b5eb7969c4f167967b0d53b17559e7855e1cff58255b2682a`.
+The template requests direct OpenAI dated models; the runs requested those
+models via OpenRouter, whose answer receipts resolve to `openai/gpt-4.1-mini`.
+Those receipts establish the reported model identifier and token usage, but do
+not establish the exact dated revision or equivalence to a direct OpenAI run;
+they also do not establish that the model differed. See
+[LCM-X provenance and the pinned PersonaMem v2 snapshot](./lcmx.md#result-provenance)
+for the complete input pin and evidence limitations. BEAM 10M has not been run.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation

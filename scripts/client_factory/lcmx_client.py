@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -27,10 +28,17 @@ def _validate_user_id(user_id):
     return user_id
 
 
-def _user_lock(user_id):
+def _user_key(user_id):
+    """Keep accepted IDs distinct even on case-insensitive filesystems."""
     user_id = _validate_user_id(user_id)
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:32]
+    return f"{user_id[:24].lower()}-{digest}"
+
+
+def _user_lock(user_id):
+    key = _user_key(user_id)
     with _USER_LOCKS_GUARD:
-        return _USER_LOCKS.setdefault(user_id, threading.Lock())
+        return _USER_LOCKS.setdefault(key, threading.Lock())
 
 
 class _LockedEmbedder:
@@ -64,7 +72,7 @@ class LcmxClient:
     """LCM-X (hermes-lcm) in-process client for OmniMemEval.
 
     Runs a headless LCM-X store per ``user_id`` under
-    ``$LCMX_DB_ROOT/<user_id>/`` using the same construction as the LCM-X
+    ``$LCMX_DB_ROOT/<user_key>/`` using the same construction as the LCM-X
     memorybench bridge (benchmarks/qa-harness/src/providers/hermes-lcm/bridge):
     lossless message rows, conversational chunk embeddings, one deterministic
     session summary per ``add`` call, and the production ``lcm_recall`` tool
@@ -142,7 +150,7 @@ class LcmxClient:
     # -- store helpers --------------------------------------------------------
 
     def _user_dir(self, user_id):
-        return self._db_root / _validate_user_id(user_id)
+        return self._db_root / _user_key(user_id)
 
     def _db_path(self, user_id):
         return self._user_dir(user_id) / "lcm.db"

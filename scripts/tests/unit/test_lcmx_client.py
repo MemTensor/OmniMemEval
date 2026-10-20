@@ -151,8 +151,10 @@ class TestLcmxClient(unittest.TestCase):
         ids = ("a-b", "a_b", "a.b", "A", "a" * 200)
         for uid in ids:
             self.client.add([{"role": "user", "content": "remember tea"}], uid)
-            self.assertEqual(self.client._user_dir(uid), self.client._db_root / uid)
-            self.assertIs(lcmx_client._user_lock(uid), lcmx_client._USER_LOCKS[uid])
+            key = self.client._user_dir(uid).name
+            self.assertRegex(key, r"^[a-z0-9][a-z0-9_.-]{0,23}-[0-9a-f]{32}$")
+            self.assertEqual(self.client._user_dir(uid), self.client._db_root / key)
+            self.assertIs(lcmx_client._user_lock(uid), lcmx_client._USER_LOCKS[key])
         self.assertEqual(len({self.client._user_dir(uid) for uid in ids}), len(ids))
         self.assertEqual(len({lcmx_client._user_lock(uid) for uid in ids}), len(ids))
         self.client.delete(ids[0])
@@ -160,6 +162,35 @@ class TestLcmxClient(unittest.TestCase):
         for uid in ids[1:]:
             self.assertTrue(self.client._db_path(uid).exists())
             self.assertEqual(self.client.search("tea", uid, 20), "remember tea")
+
+    def test_case_variant_directory_keys_are_distinct_and_stable(self):
+        upper = self.client._user_dir("CaseUser")
+        lower = self.client._user_dir("caseuser")
+        # This also catches case-insensitive filesystem collisions on Linux CI.
+        self.assertNotEqual(upper.name.casefold(), lower.name.casefold())
+        self.assertEqual(upper, self.client._user_dir("CaseUser"))
+        self.assertEqual(lower, self.client._user_dir("caseuser"))
+
+    def test_case_variant_marker_and_delete_isolation(self):
+        upper = self.client._user_dir("CaseUser")
+        lower = self.client._user_dir("caseuser")
+        upper.mkdir()
+        (upper / "marker").write_text("upper", encoding="utf-8")
+        self.assertFalse((lower / "marker").exists())
+        lower.mkdir()
+        (lower / "marker").write_text("lower", encoding="utf-8")
+        self.client.delete("caseuser")
+        self.assertFalse(lower.exists())
+        self.assertEqual((upper / "marker").read_text(encoding="utf-8"), "upper")
+
+    def test_lock_uses_storage_key(self):
+        for uid in ("CaseUser", "caseuser"):
+            key = self.client._user_dir(uid).name
+            lock = lcmx_client._user_lock(uid)
+            self.assertIs(lock, lcmx_client._USER_LOCKS[key])
+            self.assertIs(lock, lcmx_client._user_lock(uid))
+            self.assertNotIn(uid, lcmx_client._USER_LOCKS)
+        self.assertIsNot(lcmx_client._user_lock("CaseUser"), lcmx_client._user_lock("caseuser"))
 
     def test_add_search_delete_round_trip(self):
         self.assertEqual(self.client.search("tea", "user-1", 20), "")
