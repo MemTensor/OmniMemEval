@@ -96,6 +96,77 @@ they do not establish the exact dated model revision or equivalence to a
 direct OpenAI run. This limitation does not establish that a different model
 was used.
 
+### BEAM 10M run (2026-10-22)
+
+The LCM-X BEAM 10M cell comes from a separate contributor run by the LCM-X
+maintainers on **2026-10-22**. It used LCM-X v0.28.0 (commit
+`709099b3a397a7893a7abae8802ebe7bf605f79e`) with the template configuration
+described below (`full` chunk policy and delivery, local fastembed
+`BAAI/bge-small-en-v1.5`, top-k 20):
+
+```bash
+./scripts/run_beam_eval.sh --lib lcmx --env .env.lcmx --scale 10m --version board-v0280-10m-20261022 --workers 2 --llm-workers 10 --top-k 20
+```
+
+- **Harness commits.** Ingestion of 90 sessions ran at
+  [`cd955c46a40a5d7f386cdfaec711ef8c966ff97d`](https://github.com/electricsheephq/OmniMemEval/tree/cd955c46a40a5d7f386cdfaec711ef8c966ff97d).
+  That commit carries the adapter fix in this change: BEAM session IDs are
+  preserved, and embedding batches are bounded and retry-safe.
+  - Conversation 7 opens with null `time_anchor` values, and the unchanged
+    ingestion code raised before storing any of its sessions. The run resumed at
+    [`282be0b82281d41eb6684b38e93b9bac544fb20b`](https://github.com/electricsheephq/OmniMemEval/tree/282be0b82281d41eb6684b38e93b9bac544fb20b),
+    which dates a session by its first non-null anchor. That commit ingested
+    conversation 7's 10 sessions and ran every later stage (search, answer and
+    evaluation).
+  - That fix is proposed separately in #17 (issue #16). The other 99 sessions
+    start with an anchor and keep their dates.
+- **Run settings.** The runner defaults apply: one run (`NUM_RUNS=1`) over 200
+  questions, and `ALLOW_EMPTY_SEARCH=1`, which keeps empty-search rows in the
+  denominator. All skip-failed switches stay off. Search, answer and evaluation each
+  recorded 200 successes, with no failed and no skipped units.
+- **Models.** Answer and judge calls requested `gpt-4.1-mini-2025-04-14` and
+  `gpt-4o-mini-2024-07-18` through OpenRouter.
+  - Token receipts resolve them to `openai/gpt-4.1-mini` and
+    `openai/gpt-4o-mini-2024-07-18`, with the same limitation as the
+    2026-10-18 runs above.
+  - Answer usage: 200 calls, 2,022,915 tokens. Judge usage: 419 calls,
+    375,796 tokens.
+- **Evidence.** The [public evidence release](https://github.com/electricsheephq/OmniMemEval/releases/tag/lcmx-v0.28.0-beam10m-results-20261022)
+  provides the [results archive](https://github.com/electricsheephq/OmniMemEval/releases/download/lcmx-v0.28.0-beam10m-results-20261022/lcmx-omnimemeval-beam10m-results-20261022.tar.gz),
+  whose SHA-256 is `653690d99ec53416f8ccce2a204ed33b0c25baaf96e2577f07acd5aa17c4318f`.
+  - It holds the per-question outputs, stage status files, token receipts, a
+    manifest of commits, settings and hashes, and an offline recomputation
+    script.
+  - That script reproduces all 51 reported overall, scale, dimension and
+    difficulty cells from the judged outputs.
+
+| Dimension | Nugget score | n |
+| --- | ---: | ---: |
+| abstention | 92.50 +/- 17.85 | 20 |
+| contradiction_resolution | 58.75 +/- 14.31 | 20 |
+| event_ordering | 16.98 +/- 20.26 | 20 |
+| information_extraction | 80.00 +/- 40.00 | 20 |
+| instruction_following | 72.50 +/- 39.45 | 20 |
+| knowledge_update | 67.50 +/- 45.48 | 20 |
+| multi_session_reasoning | 37.50 +/- 42.78 | 20 |
+| preference_following | 87.50 +/- 30.10 | 20 |
+| summarization | 74.93 +/- 21.56 | 20 |
+| temporal_reasoning | 45.00 +/- 39.21 | 20 |
+| **Overall** | **63.32 +/- 40.02** | **200** |
+
+The +/- figures are per-question population standard deviations printed by
+the harness; they are not multi-run variance or confidence intervals.
+
+**Limitations:**
+- One recall interruption in the chunk arm produced a degraded-recall warning.
+  Stage success does not establish full retrieval coverage for that query.
+- Ingestion statistics were overwritten when the run resumed after the
+  conversation 7 failure, so no total ingest latency is reported. The archive
+  verifies 100 unique session-ingest successes and 208,696 ingested messages.
+- An earlier attempt with an incorrect store layout was discarded and is not
+  part of this result.
+- The receipts are token usage, not invoices; dollar spend is not reported.
+
 ### PersonaMem v2 snapshot
 
 The archive's original manifest left this dataset unpinned. The complete input

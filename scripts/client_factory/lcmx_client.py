@@ -11,6 +11,8 @@ from types import SimpleNamespace
 from .base_client import env_int, env_str, require_env
 
 _DEFAULT_FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"
+# Match FastEmbed 0.8.0 TextEmbedding.embed's internal default grouping.
+_EMBED_BATCH_SIZE = 256
 
 # One warmed embedder per process (FastEmbed loads an ONNX model; ingestion
 # runs several client instances on worker threads).
@@ -66,6 +68,14 @@ class _LockedEmbedder:
     def embed_query(self, text):
         with self._lock:
             return self._provider.embed_query(text)
+
+    def embed_document_batches(self, texts):
+        with self._lock:
+            method = getattr(self._provider, "embed_document_batches", None)
+            if callable(method):
+                yield from method(texts)
+            else:
+                yield SimpleNamespace(vectors=self._provider.embed_documents(texts))
 
 
 class LcmxClient:
@@ -233,7 +243,7 @@ class LcmxClient:
             sessions = self._load_sessions(user_id)
             order = len(sessions) + 1
             session_id = str(session_key) if session_key else f"{user_id}-s{order}"
-            if session_id in sessions:
+            if not session_key and session_id in sessions:
                 session_id = f"{session_id}#{order}"
 
             rows_in = []
@@ -250,13 +260,24 @@ class LcmxClient:
 
             _config, store, dag, vector_store = self._open(user_id)
             try:
-                store_ids = store.append_batch(
+                existing, nodes = [], []
+                if session_key:
+                    existing = store.get_session_messages(session_id, limit=len(rows_in) + 1)
+                    nodes = dag.get_session_nodes(session_id, depth=0, limit=2)
+                    def row_hash(rows):
+                        pairs = [(r["role"], r["content"]) for r in rows]
+                        return hashlib.sha256(json.dumps(pairs, ensure_ascii=False).encode()).digest()
+                    if (existing or nodes) and (
+                        row_hash(existing) != row_hash(rows_in) or len(nodes) != 1
+                    ):
+                        raise ValueError("session rows or depth-0 node mismatch")
+                store_ids = [r["store_id"] for r in existing] if existing else store.append_batch(
                     session_id, rows_in, source="benchmark", conversation_id=session_id
                 )
                 summary_text = self._summary(
                     [{"role": r["role"], "content": r["content"]} for r in rows_in]
                 )
-                node_id = dag.add_node(
+                node_id = nodes[0].node_id if nodes else dag.add_node(
                     SummaryNode(
                         session_id=session_id,
                         depth=0,
@@ -284,9 +305,14 @@ class LcmxClient:
                         for sid, r in zip(store_ids, rows_in)
                     ]
                     chunks = list(iter_message_chunks(rows, policy=self._chunk_policy))
-                    if chunks:
-                        vectors = self._embedder.embed_documents([c.text for c in chunks])
-                        for chunk, vector in zip(chunks, vectors):
+                    for start in range(0, len(chunks), _EMBED_BATCH_SIZE):
+                        batch = chunks[start:start + _EMBED_BATCH_SIZE]
+                        vectors = [v for result in self._embedder.embed_document_batches(
+                            [c.text for c in batch]
+                        ) for v in result.vectors]
+                        if len(vectors) != len(batch):
+                            raise ValueError("chunk embedding count mismatch")
+                        for chunk, vector in zip(batch, vectors):
                             vector_store.record_chunk_embedding(
                                 chunk.chunk_id, self._model, vector,
                                 store_id=chunk.store_id, chunk_index=chunk.chunk_index,

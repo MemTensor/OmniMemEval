@@ -66,7 +66,7 @@ the reproduced OmniMemEval scores.
 | MemoryLake | 72.49 | - | - | - | - | - |
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
-| LCM-X | 78.83 | 87.00 | 71.84 | - | 33.96 | 81.68 |
+| LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -81,7 +81,10 @@ Those receipts establish the reported model identifier and token usage, but do
 not establish the exact dated revision or equivalence to a direct OpenAI run;
 they also do not establish that the model differed. See
 [LCM-X provenance and the pinned PersonaMem v2 snapshot](./lcmx.md#result-provenance)
-for the complete input pin and evidence limitations. BEAM 10M has not been run.
+for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
+comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
+[LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
+evidence archive and limitations.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -217,7 +220,11 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | MemMachine | local/self-hosted | 64.80 +/- 37.62 | 5,413 | 51.90 +/- 40.46 | 5,448 |
 | mem9 | cloud | 65.75 +/- 38.92 | 5,372 | 57.30 +/- 39.03 | 4,947 |
 | MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
-| LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | - | - |
+| LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
+
+The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
++/- figure is the per-question standard deviation printed by the harness. See
+[LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22).
 
 ### Published Reference Results
 
