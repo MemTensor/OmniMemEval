@@ -85,7 +85,10 @@ class TestLcmxClient(unittest.TestCase):
 
             store.append_batch.side_effect = append
             store.get_batch.side_effect = lambda ids: {sid: rows[sid] for sid in ids}
-            self.backends[user_id] = (SimpleNamespace(), store, Mock(), Mock(), rows)
+            store.get_session_messages.return_value = []
+            dag = Mock()
+            dag.get_session_nodes.return_value = []
+            self.backends[user_id] = (SimpleNamespace(), store, dag, Mock(), rows)
         return self.backends[user_id][:4]
 
     @staticmethod

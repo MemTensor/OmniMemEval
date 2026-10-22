@@ -95,7 +95,7 @@ def ingest_session(client, messages, frame, user_id, session_id, session_date):
     char_count = sum(len(str(msg.get("content", ""))) for msg in chat_messages)
 
     time_kw = inject_time(chat_messages, session_date, frame)
-    sess_kw = session_id_kwargs(frame, session_id)
+    sess_kw = {"session_id": session_id} if frame == "lcmx" else session_id_kwargs(frame, session_id)
 
     label = (
         f"{frame} BEAM add user={user_id} session={session_id} "
