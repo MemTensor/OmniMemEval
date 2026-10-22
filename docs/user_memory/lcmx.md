@@ -113,10 +113,11 @@ described below (`full` chunk policy and delivery, local fastembed
   That commit carries the adapter fix in this change: BEAM session IDs are
   preserved, and embedding batches are bounded and retry-safe.
   - Conversation 7 opens with null `time_anchor` values, and the unchanged
-    ingestion code raised before storing any of its sessions. Its 10 sessions
-    were ingested at
+    ingestion code raised before storing any of its sessions. The run resumed at
     [`282be0b82281d41eb6684b38e93b9bac544fb20b`](https://github.com/electricsheephq/OmniMemEval/tree/282be0b82281d41eb6684b38e93b9bac544fb20b),
-    which dates a session by its first non-null anchor.
+    which dates a session by its first non-null anchor. That commit ingested
+    conversation 7's 10 sessions and ran every later stage (search, answer and
+    evaluation).
   - That fix is proposed separately in #17 (issue #16). The other 99 sessions
     start with an anchor and keep their dates.
 - **Run settings.** The runner defaults apply: one run (`NUM_RUNS=1`) over 200
