@@ -80,6 +80,19 @@ def parse_time_anchor(time_anchor_str):
     return parse_beam_time(time_anchor_str)
 
 
+def session_time_anchor(messages, default="January-01-2024"):
+    """Return the first non-empty ``time_anchor`` in a session, else ``default``.
+
+    BEAM-10M conversation 7 session 0 opens with null anchors; its first
+    anchor (index 244) is March-05-2020. Every other 10M session starts with
+    an anchor, so they keep the date of their first message.
+    """
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("time_anchor"):
+            return msg["time_anchor"]
+    return default
+
+
 _BEAM_RETAIN_MISSION = (
     "Extract ALL factual claims the user makes about themselves, their project, "
     "and their experience — including NEGATIVE statements (e.g. 'I have never done X', "
@@ -172,8 +185,7 @@ def ingest_conversation(conv, version, frame, success_records, f, clear=False):
         if not session:
             continue
 
-        first_msg = session[0]
-        session_date = parse_time_anchor(first_msg.get("time_anchor", "January-01-2024"))
+        session_date = parse_time_anchor(session_time_anchor(session))
         session_id = f"{user_id}_session_{sess_idx}"
 
         try:

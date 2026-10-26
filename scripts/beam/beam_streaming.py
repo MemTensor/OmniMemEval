@@ -37,6 +37,7 @@ from beam.beam_ingestion import (  # noqa: E402
     ingest_session,
     load_beam_data,
     parse_time_anchor,
+    session_time_anchor,
 )
 from beam.beam_search import parse_probing_questions  # noqa: E402
 from beam.beam_common import (  # noqa: E402
@@ -155,9 +156,7 @@ def build_graphiti_session_chunks(
 ) -> list[BeamGraphitiChunk]:
     conv_id = str(conv["conversation_id"])
     scale = conv.get("_scale", "unknown")
-    session_date = parse_time_anchor(
-        messages[0].get("time_anchor", "January-01-2024") if messages else "January-01-2024"
-    )
+    session_date = parse_time_anchor(session_time_anchor(messages))
     timestamp = session_date.isoformat()
 
     body_lines = [
@@ -310,7 +309,7 @@ def add_conversation_per_session(
         session_chars = sum(len(msg.get("content", "")) for msg in messages)
         total_messages += len(messages)
         total_chars += session_chars
-        session_date = parse_time_anchor(messages[0].get("time_anchor", "January-01-2024"))
+        session_date = parse_time_anchor(session_time_anchor(messages))
         session_id = f"{user_id}_session_{session_idx}"
 
         if checkpoint_id in added_sessions:
