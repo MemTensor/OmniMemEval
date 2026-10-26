@@ -1,0 +1,284 @@
+{
+  "locomo": {
+    "version": "hojo_locomo_full_max10k_20261012a",
+    "questions": 1540,
+    "valid_questions": 1540,
+    "execution_failures": 0,
+    "excluded_questions": 0,
+    "score": 0.8811688311688312,
+    "aggregation": "arithmetic mean of unrounded per-question scores",
+    "categories": {
+      "multi-hop": {
+        "questions": 282,
+        "score": 0.8191489361702128
+      },
+      "open-domain": {
+        "questions": 96,
+        "score": 0.7291666666666666
+      },
+      "single-hop": {
+        "questions": 841,
+        "score": 0.929845422116528
+      },
+      "temporal": {
+        "questions": 321,
+        "score": 0.8535825545171339
+      }
+    },
+    "configuration": {
+      "strict_fair": true,
+      "method": "SEMANTIC",
+      "top_k": 20,
+      "candidate_limit": 200,
+      "max_tokens": 10000,
+      "min_score": 0.0,
+      "action_query_expansion": false,
+      "multi_pass_retrieval": false,
+      "assistant_response_query_expansion": false,
+      "version": "hojo_locomo_full_max10k_20261012a",
+      "answer_model": "gpt-4.1-mini-2025-04-14",
+      "eval_model": "gpt-4o-mini-2024-07-18"
+    },
+    "source_judged_sha256": "aa42deb53aa20be44a9f94c0f83d0d053124df575e8ad4f731f692dae2458998",
+    "public_records_sha256": "280fbefccf6ff7c3b74a04f0bf60a8d83cf2f750f4051632811d3c536d9291f7",
+    "context_tokens_mean": 9360.3,
+    "answer_api_calls": 1540,
+    "source_report_sha256": "a0c3560420a108f895596782d6891bba38fb53a858cff4b31ef7bb3ac6e6ebf9"
+  },
+  "beam100k": {
+    "version": "hojo_beam100k_grounded_full_p6_20261015a",
+    "questions": 400,
+    "valid_questions": 400,
+    "execution_failures": 0,
+    "excluded_questions": 0,
+    "score": 0.6957986242730462,
+    "aggregation": "arithmetic mean of unrounded per-question scores",
+    "categories": {
+      "abstention": {
+        "questions": 40,
+        "score": 0.825
+      },
+      "contradiction_resolution": {
+        "questions": 40,
+        "score": 0.690625
+      },
+      "event_ordering": {
+        "questions": 40,
+        "score": 0.3591618379685548
+      },
+      "information_extraction": {
+        "questions": 40,
+        "score": 0.834375
+      },
+      "instruction_following": {
+        "questions": 40,
+        "score": 0.8
+      },
+      "knowledge_update": {
+        "questions": 40,
+        "score": 0.5875
+      },
+      "multi_session_reasoning": {
+        "questions": 40,
+        "score": 0.7044642857142857
+      },
+      "preference_following": {
+        "questions": 40,
+        "score": 0.85625
+      },
+      "summarization": {
+        "questions": 40,
+        "score": 0.7131101190476191
+      },
+      "temporal_reasoning": {
+        "questions": 40,
+        "score": 0.5875
+      }
+    },
+    "configuration": {
+      "benchmark": "BEAM 100K",
+      "version": "hojo_beam100k_grounded_full_p6_20261015a",
+      "dataset_sha256": "5f4e24cc25769a84da86b77ffa77f314bf8c833a868016bef7ef2346198b3ed9",
+      "scope": "full",
+      "top_k": 20,
+      "candidate_limit": 200,
+      "min_score": 0.5,
+      "ordering_summary_candidate_limit": 400,
+      "ordering_summary_min_score": 0.35,
+      "max_tokens": 1500,
+      "broad_max_tokens": 6000,
+      "answer_model": "gpt-4.1-mini",
+      "eval_model": "gpt-4o-mini",
+      "ingest_mode": "direct_message_claims_v3",
+      "prompt_profile": "omnimemeval_beam_evidence_v3",
+      "retrieval_profile": "multi_pass_session_coverage_v1",
+      "context_profile": "code_compact_v1",
+      "evidence_profile": "user_grounded_v1",
+      "workers": 6
+    },
+    "source_judged_sha256": "4285b14c2dc6da4a23236685d7c05b57283d0701904aa5b44a2c4154d0549703",
+    "public_records_sha256": "e56c87f0b5307a465185ee418ca8252748adbba7ddc8726594a7b9905c7a5c97",
+    "elapsed_seconds": 3283.13
+  },
+  "personamem_v2": {
+    "version": "hojo_personamem_v2_full_p3_20261002_retry1",
+    "questions": 5000,
+    "valid_questions": 5000,
+    "execution_failures": 0,
+    "excluded_questions": 0,
+    "score": 0.3514,
+    "aggregation": "arithmetic mean of unrounded per-question scores",
+    "categories": {
+      "anti_stereotypical_pref": {
+        "questions": 855,
+        "score": 0.27485380116959063
+      },
+      "ask_to_forget": {
+        "questions": 1048,
+        "score": 0.4198473282442748
+      },
+      "health_and_medical_conditions": {
+        "questions": 568,
+        "score": 0.2482394366197183
+      },
+      "neutral_preferences": {
+        "questions": 858,
+        "score": 0.3041958041958042
+      },
+      "sensitive_info": {
+        "questions": 511,
+        "score": 0.37377690802348335
+      },
+      "stereotypical_pref": {
+        "questions": 533,
+        "score": 0.34709193245778613
+      },
+      "therapy_background": {
+        "questions": 627,
+        "score": 0.48484848484848486
+      }
+    },
+    "configuration": {
+      "benchmark": "PersonaMem v2",
+      "version": "hojo_personamem_v2_full_p3_20261002_retry1",
+      "dataset_revision": "ed956dea41521fc4499acbc63f966e0fd3c053ba",
+      "dataset_sha256": "686f5fba06cebb5f60bed59386f8f6321cfe6f0cb763e1f319adebb2fdc20cbb",
+      "workers": 4,
+      "top_k": 20,
+      "candidate_limit": 200,
+      "min_score": 0.5,
+      "max_tokens": 1500,
+      "answer_model": "gpt-4.1-mini",
+      "ingest_mode": "direct_message_claims_v1"
+    },
+    "source_judged_sha256": "f5c20ecedbd2c942cc9b6f40ceaf9316d32d3dd75ddecf35f2015fec8803b9c0",
+    "public_records_sha256": "053811bbfd538288a6faf0cb5a8d5ca1e344ff2f4a755a7578168a562157264d",
+    "elapsed_seconds": 15118.98
+  },
+  "halumem": {
+    "version": "hojo_hm_dev_gpt_full_20261022c",
+    "questions": 3467,
+    "valid_questions": 3467,
+    "execution_failures": 0,
+    "excluded_questions": 0,
+    "score": 0.7732910297086819,
+    "aggregation": "arithmetic mean of unrounded per-question scores",
+    "categories": {
+      "Basic Fact Recall": {
+        "questions": 746,
+        "score": 0.5951742627345844
+      },
+      "Dynamic Update": {
+        "questions": 180,
+        "score": 0.4
+      },
+      "Generalization & Application": {
+        "questions": 746,
+        "score": 0.8203753351206434
+      },
+      "Memory Boundary": {
+        "questions": 828,
+        "score": 0.9553140096618358
+      },
+      "Memory Conflict": {
+        "questions": 769,
+        "score": 0.811443433029909
+      },
+      "Multi-hop Inference": {
+        "questions": 198,
+        "score": 0.696969696969697
+      }
+    },
+    "configuration": {
+      "benchmark": "HaluMem-Medium",
+      "version": "hojo_hm_dev_gpt_full_20261022c",
+      "dataset_sha256": "486fbc130a5c8781a2af27ffa508a1d7855245137aa449c193ac4d29c45634e7",
+      "top_k": 20,
+      "candidate_limit": 200,
+      "min_score": 0.5,
+      "max_tokens": 1500,
+      "answer_model": "gpt-4.1-mini",
+      "eval_model": "gpt-4o-mini",
+      "ingest_mode": "direct_message_claims_v2",
+      "workers": 4,
+      "answer_profile": "baseline",
+      "time_profile": "session"
+    },
+    "source_judged_sha256": "4f49b3aeea6e65d798c6be2e77a53b67004f93f2adf573215923a10c673c5241",
+    "public_records_sha256": "ea890b9070a67ec5f24d4ce309165074fe0c1e932906218ad1fd148d496015fa",
+    "elapsed_seconds": 19050.76
+  },
+  "longmemeval_s": {
+    "version": "hojo_lme_full_gpt_20261022a",
+    "questions": 500,
+    "valid_questions": 500,
+    "execution_failures": 0,
+    "excluded_questions": 0,
+    "score": 0.806,
+    "aggregation": "arithmetic mean of unrounded per-question scores",
+    "categories": {
+      "knowledge-update": {
+        "questions": 78,
+        "score": 0.8846153846153846
+      },
+      "multi-session": {
+        "questions": 133,
+        "score": 0.6842105263157895
+      },
+      "single-session-assistant": {
+        "questions": 56,
+        "score": 0.7857142857142857
+      },
+      "single-session-preference": {
+        "questions": 30,
+        "score": 0.8333333333333334
+      },
+      "single-session-user": {
+        "questions": 70,
+        "score": 0.9857142857142858
+      },
+      "temporal-reasoning": {
+        "questions": 133,
+        "score": 0.7894736842105263
+      }
+    },
+    "configuration": {
+      "version": "hojo_lme_full_gpt_20261022a",
+      "workers": 6,
+      "benchmark": "LongMemEval-S",
+      "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "answer_model": "gpt-4.1-mini",
+      "eval_model": "gpt-4o-mini",
+      "ingest_mode": "direct_message_claims_v2",
+      "index_assistant_messages": true,
+      "top_k": 20,
+      "candidate_limit": 200,
+      "min_score": 0.5,
+      "max_tokens": 1500,
+      "assistant_recall_profile": "bounded_second_pass_v1"
+    },
+    "source_judged_sha256": "6a5c91ab1799377db73c352557d8e061158b84cd97fc8d729cdf9ef145afcff1",
+    "public_records_sha256": "37158248d03c494a6c894f2c2d33dcf4aedd0f6ae28910aff1f266f3e0c50542",
+    "elapsed_seconds": 115674.232485
+  }
+}

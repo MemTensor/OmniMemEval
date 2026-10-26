@@ -1,0 +1,15 @@
+{
+  "snapshot_commit": "8d811afe207ec12d698a328f370128598be9b54f",
+  "file_source_commits": {
+    "run_omnimemeval_beam100k.py": "e983688562daf22cece0fc050bea76d1a4aee4a8"
+  },
+  "files_sha256": {
+    "run_omnimemeval_lme.py": "ee33a499b4935406b7bd3da9b28bef734fda5d8834b8c32c271713aea4255e72",
+    "run_omnimemeval_lme_parallel.py": "f3ee38b97f86f1cb330cc18a8c5adf7057b13bfa3f64b90d3292d2d629b1e87d",
+    "run_omnimemeval_halumem.py": "af4cc4ae99487e07361a0a0d71f7227aad2df4e56ca81ee86c5ba943240d3fbd",
+    "run_omnimemeval_beam100k.py": "209711d1551f61b47c21eb00b2c3ab8f8712648e005803bab748b7fffa16f8c6",
+    "run_omnimemeval_personamem_v2.py": "f9273604e0af616d30f7cebb1cd67626c597dc32daab88655c0187e6226968e9",
+    "omnimemeval_badcase_ids.py": "9f8da142b1c87c8526b9db094ce4fd5e7d32ec9860290769774b41db46c99f11"
+  },
+  "note": "Reference harness source snapshot; this is not proof of the deployed service commit for historical runs."
+}

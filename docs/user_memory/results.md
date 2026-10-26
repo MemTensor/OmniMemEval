@@ -142,6 +142,7 @@ adversarial questions and covers 1,540 questions.
 | past.dev | 95.01 | 93.26 | 93.46 | 75.00 | 93.12 | - | [past.dev benchmarks](https://past.dev/benchmarks) (community-corrected answer keys) |
 | CPersona (pro) | 88.70 | 78.01 | 83.18 | 63.54 | 84.03 | 4,441 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | CPersona (lite) | 73.84 | 51.06 | 72.59 | 54.17 | 68.18 | 1,485 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
+| Hojo MemoryEngine | 92.98 | 81.91 | 85.36 | 72.92 | 88.12 | - | [Hojo evaluation details: 1,540-question non-adversarial subset](./hojo_reference_results.md#locomo) |
 
 ## LongMemEval
 
@@ -189,6 +190,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | Backboard.io | 97.1 | 98.2 | 90.0 | 91.7 | 91.7 | 93.6 | 93.4 | - | [Backboard LongMemEval repo](https://github.com/Backboard-io/Backboard-longmemEval-results) |
 | CPersona (pro) | 97.14 | 94.64 | 96.67 | 86.47 | 85.71 | 88.46 | 89.60 | 4,262 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | CPersona (lite) | 95.71 | 83.93 | 90.00 | 80.45 | 74.44 | 82.05 | 82.20 | 993 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
+| Hojo MemoryEngine | 98.57 | 78.57 | 83.33 | 78.95 | 68.42 | 88.46 | 80.60 | - | [Hojo evaluation details](./hojo_reference_results.md#longmemeval-s) |
 
 ## BEAM
 
@@ -234,6 +236,7 @@ The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 | Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
 | past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
 | OpenWay.ai | 75.07 | 5,366 | - | - | [OpenWay.ai BEAM-100K runs](https://github.com/andrei2084k-prog/openway.ai-beam-100k) (OmniMemEval harness at `0b1ea8d`; latest run, on a newer version of OpenWay.ai) |
+| Hojo MemoryEngine | 69.58 | - | - | - | [100K evaluation details](./hojo_reference_results.md#beam-100k); [10M status](./hojo_reference_results.md#beam-10m) |
 
 ## PersonaMem v2
 
@@ -274,6 +277,7 @@ the gold answer; repeated runs are averaged.
 | Backend | Overall | Context Tokens | Source |
 | --- | ---: | ---: | --- |
 | EverOS | 53.25 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
+| Hojo MemoryEngine | 35.14 | - | [Hojo evaluation details](./hojo_reference_results.md#personamem-v2) |
 
 ## HaluMem
 
@@ -313,6 +317,7 @@ multi-hop inference, and dynamic updates.
 | Backend | Overall | Context Tokens | Source |
 | --- | ---: | ---: | --- |
 | EverOS | 93.04 | - | [EverMind](https://evermind.ai/) |
+| Hojo MemoryEngine | 77.33 | - | [Hojo evaluation details](./hojo_reference_results.md#halumem-medium) |
 
 ## Reproduction Notes
 
