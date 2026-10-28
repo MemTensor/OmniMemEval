@@ -255,6 +255,7 @@ LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 `--streaming 1`，
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
 | `lcmx` | [LCM-X 安装与运行配置](./lcmx.md) |
+| `cachly` | [cachly 安装与运行配置](./cachly.md) |
 
 接入、配置、隔离与测试要求见
 [适配器清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)，
