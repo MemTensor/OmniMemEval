@@ -67,6 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
+| Maasv | 85.26 | - | - | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -85,6 +86,13 @@ for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
 comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
+
+The Maasv row is contributor-run: the Maasv team ran the unchanged pipeline and
+prompts on **2026-10-29** with OmniMemEval harness commit `7c79d46` plus the
+`maasv` adapter commit, using a self-hosted Maasv v0.4.46 service (top-k 20) and the dated models from
+the direct OpenAI API. Maasv is not open source; the per-question records
+support artifact arithmetic and answer/judge replay.
+See [Maasv deployment and result provenance](./maasv.md#result-provenance).
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -124,6 +132,7 @@ adversarial questions and covers 1,540 questions.
 | Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
+| Maasv | local/self-hosted | 89.42 | 80.50 | 83.80 | 67.71 | 85.26 | 1,462 |
 
 ### Published Reference Results
 
