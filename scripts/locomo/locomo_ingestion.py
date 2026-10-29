@@ -185,6 +185,11 @@ def ingest_session(client, session, frame, metadata):
         client.add(speaker_a_messages, speaker_a_user_id,
                     session_key=session_key)
 
+    # ── cachly: one shared brain per conversation ────────────────────────
+    elif frame == "cachly":
+        inject_time(speaker_a_messages, dt, frame)
+        client.add(speaker_a_messages, speaker_a_user_id)
+
     # ── Default: dual-speaker with inject_time ───────────────────────────
     else:
         inject_time(speaker_a_messages, dt, frame)

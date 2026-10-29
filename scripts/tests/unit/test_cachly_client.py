@@ -203,5 +203,38 @@ class TestCachlyClient(unittest.TestCase):
         self.assertEqual(self.post.call_count, 3)
 
 
+class TestCachlyLocomoSharedStore(unittest.TestCase):
+    """LoCoMo: one shared store per conversation (ingest once, search once)."""
+
+    META = {
+        "session_date": "1:56 pm on 8 May, 2023", "conv_idx": 0, "session_key": "session_1",
+        "speaker_a": "Caroline", "speaker_b": "Melanie",
+        "speaker_a_user_id": "u_a", "speaker_b_user_id": "u_b",
+    }
+    SESSION = [{"speaker": "Caroline", "text": "Hi Mel!"}, {"speaker": "Melanie", "text": "Hey Caroline."}]
+
+    def test_session_is_added_once_to_speaker_a(self):
+        from scripts.locomo.locomo_ingestion import ingest_session
+
+        client = Mock()
+        ingest_session(client, self.SESSION, "cachly", dict(self.META))
+        client.add.assert_called_once()
+        msgs, user_id = client.add.call_args.args
+        self.assertEqual(user_id, "u_a")
+        self.assertEqual([m["content"] for m in msgs], ["Caroline: Hi Mel!", "Melanie: Hey Caroline."])
+
+    def test_search_reads_one_store_and_answer_step_merges_it(self):
+        from scripts.locomo.locomo_responses import _dedup_shared_context
+        from scripts.locomo.locomo_search import search_query
+
+        client = Mock()
+        client.search.return_value = "Caroline: Hi Mel!"
+        context = search_query(client, "who said hi?", dict(self.META), "cachly", top_k=20)[0]
+        client.search.assert_called_once_with("who said hi?", "u_a", 20)
+        merged = _dedup_shared_context(context)
+        self.assertTrue(merged.startswith("Shared memories from conversation between Caroline and Melanie"))
+        self.assertEqual(merged.count("Caroline: Hi Mel!"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

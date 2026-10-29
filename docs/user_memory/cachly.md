@@ -60,6 +60,12 @@ Behaviour of the adapter:
   service returns them.
 - HTTP 4xx (except 429) raises at once. 429, 5xx and connection errors are
   retried by the shared `_retry` helper.
+- The service returns up to `top_k` records; cachly caps a single search at 20.
+
+LoCoMo: cachly keeps one shared store per conversation, like Supermemory,
+Backboard and Hindsight. Each session is added once, under the speaker A
+`user_id`, and both speakers are answered from that store (`shared_conv_search`).
+The answer step then merges the two identical speaker sections into one block.
 
 ## Non-default settings
 
