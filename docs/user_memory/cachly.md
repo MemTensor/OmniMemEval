@@ -68,6 +68,8 @@ LoCoMo: cachly keeps one shared store per conversation, like Supermemory,
 Backboard and Hindsight. Each session is added once, under the speaker A
 `user_id`, and both speakers are answered from that store (`shared_conv_search`).
 The answer step then merges the two identical speaker sections into one block.
+A message that shares a photo keeps the photo description LoCoMo ships with it
+(`blip_caption`), appended as ` [image: ...]`, as the Hindsight client does.
 
 ## Non-default settings
 

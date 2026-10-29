@@ -223,6 +223,21 @@ class TestCachlyLocomoSharedStore(unittest.TestCase):
         self.assertEqual(user_id, "u_a")
         self.assertEqual([m["content"] for m in msgs], ["Caroline: Hi Mel!", "Melanie: Hey Caroline."])
 
+    def test_photo_description_is_kept_with_its_message(self):
+        from scripts.locomo.locomo_ingestion import ingest_session
+
+        session = [
+            {"speaker": "Melanie", "text": "Our latest work!", "blip_caption": "a photo of a sunset with a palm tree"},
+            {"speaker": "Caroline", "text": "Lovely."},
+        ]
+        client = Mock()
+        ingest_session(client, session, "cachly", dict(self.META))
+        msgs, _ = client.add.call_args.args
+        self.assertEqual(
+            [m["content"] for m in msgs],
+            ["Melanie: Our latest work! [image: a photo of a sunset with a palm tree]", "Caroline: Lovely."],
+        )
+
     def test_search_reads_one_store_and_answer_step_merges_it(self):
         from scripts.locomo.locomo_responses import _dedup_shared_context
         from scripts.locomo.locomo_search import search_query
