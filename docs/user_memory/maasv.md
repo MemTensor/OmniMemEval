@@ -45,3 +45,17 @@ generated report are published at: https://github.com/maasv-ai/omnimemeval-resul
 
 The records support recomputing the aggregate and replaying the answer and
 judge stages.
+
+BEAM 100K, 2026-10-29, run by the Maasv team:
+
+| Item | Value |
+| --- | --- |
+| Harness | OmniMemEval `7c79d46` plus the `maasv` adapter (no pipeline, prompt or metric changes) |
+| Dataset | BEAM 100K from `prepare_beam.py --scale 100k`: 20 conversations, 5,732 messages, 400 questions |
+| Coverage | 400 of 400 questions searched, answered and judged; 0 failed, 0 skipped; 0 failed conversations at ingestion |
+| Answer / judge | `gpt-4.1-mini-2025-04-14` / `gpt-4o-mini-2024-07-18`, direct OpenAI API; one judge run |
+| Score | Nugget score 74.83 ± 32.87 (per-question SD) |
+| Context tokens | 3,470,215 answer prompt tokens over 400 calls (8,675.5 per question) |
+| Command | `run_beam_eval.sh --lib maasv --env .env.maasv --version maasv_v0446_beam100k_r1 --scale 100k` (one invocation) |
+
+Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam100k-20261029.
