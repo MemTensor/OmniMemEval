@@ -9,8 +9,8 @@ AML contract `memory-api-v1.1` and sits in front of a cachly Brain (Valkey plus
 an embedding service). The adapter is an HTTP client only; it does not start
 or embed anything itself.
 
-- Source: <https://github.com/cachly-dev/cachly-mcp> (Apache-2.0).
-  TODO(maintainer): the cachly-mcp release this adapter was verified against.
+- Source: <https://github.com/cachly-dev/cachly-mcp> (Apache-2.0). Verified
+  against `@cachly-dev/mcp-server` 0.10.217.
 - Service code for the add/search endpoints:
   <https://github.com/cachly-dev/cachly-mcp/tree/main/aml-service> (contract,
   start and settings in its README).
