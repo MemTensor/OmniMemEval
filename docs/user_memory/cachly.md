@@ -117,4 +117,40 @@ Run a suite from the repository root after configuring `.env.cachly`:
 ./scripts/run_locomo_eval.sh --lib cachly --env .env.cachly
 ```
 
-No reported results are listed yet.
+## Result provenance
+
+The LoCoMo row in [results.md](./results.md) was produced by Heinrich Neb
+(cachly). Ingestion and search ran from 2026-10-29 22:51 to 2026-10-30
+04:48 UTC, answer and judge stages from 04:48 to 05:04 UTC, with OmniMemEval
+harness commit `f7476c5502115542eca9971195bf8c5ca97b6256` and
+`@cachly-dev/mcp-server` 0.10.218 (cachly-mcp commit
+`5ecd1a67ca54391f552841a7c4b0821d788917fe`).
+
+The [public evidence release](https://github.com/cachly-dev/OmniMemEval/releases/tag/cachly-locomo-results-20261030)
+provides the [results archive](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-locomo-results-20261030/cachly-omnimemeval-locomo-20261030.tar.gz),
+whose SHA-256 is `fae88340204ed2a2986252d27bc2f4875b310b4bd05248cce44b695f74cf5045`. It holds the per-question records, stage
+status files, answer-token receipts, the run settings, a recompute script and
+a `MANIFEST.json` with file hashes. Search, answer and judge each report 1,540
+successes and no skipped records; the run was done once.
+
+- **Reranker.** Search asked the cachly API's cross-encoder reranker (model
+  `leser-klein-voll`, trained by cachly, not public) to reorder the top 25
+  candidates, with a 2,500 ms limit; how many searches it reordered was not
+  recorded. A later search of the same stores with it off shared 17.97 of 20
+  chunks per question on average (115 contexts identical); the archive lists
+  each question. `CACHLY_LESER=off` switches it off.
+- **Adapter as run.** The run used a working copy of the harness with this
+  adapter. Its client file also carried a local development transport, which
+  is off when `CACHLY_AML_URL` is set. The archive's `check_requests.py` shows
+  that the 1,812 add and search requests of the run's client and of this
+  adapter are identical.
+- **Context Tokens** is answer prompt tokens divided by answer calls
+  (10,275,728 / 1,540). The pipeline's `grades.json` value (12,760) counts the
+  search context before the answer step merges the two identical speaker
+  sections.
+- **Earlier runs.** Complete runs with earlier configurations scored 85.58
+  (one store per speaker), 88.57 (shared store, top-k 14) and 88.70 (top-k
+  20). The last changes, photo descriptions and date spans for phrases such as
+  "last week", came from reading lost LoCoMo questions; LoCoMo has no separate
+  development split. The top-k 14 and top-k 20 runs disagreed on 71
+  questions, yet their overall scores differ by 0.13 points.
