@@ -65,6 +65,23 @@ class TestMaasvClient(unittest.TestCase):
         self.assertEqual(kwargs["json"], {"user_id": "u1", "messages": [
             {"content": "A: x", "chat_time": "2023-05-08T13:56:00+00:00"}, {"content": "B: y"}]})
 
+    def test_add_splits_large_sessions_into_ordered_batches(self):
+        os.environ["MAASV_BATCH_SIZE"] = "50"
+        client = MaasvClient()
+        msgs = [{"role": "user", "content": f"m{i}", "chat_time": "2024-01-01T00:00:00+00:00"} for i in range(120)]
+        with mock.patch.object(client, "_post", return_value=_Resp({"stored": 1, "deduped": 0})) as post:
+            totals = client.add(msgs, "u1")
+        sent = [c.kwargs["json"]["messages"] for c in post.call_args_list]
+        self.assertEqual([len(b) for b in sent], [50, 50, 20])
+        self.assertEqual([m["content"] for b in sent for m in b], [f"m{i}" for i in range(120)])
+        self.assertEqual(totals, {"stored": 3, "deduped": 0})
+
+    def test_default_batch_keeps_small_sessions_in_one_request(self):
+        client = MaasvClient()
+        with mock.patch.object(client, "_post", return_value=_Resp({"stored": 1, "deduped": 0})) as post:
+            client.add([{"content": f"m{i}"} for i in range(50)], "u1")
+        self.assertEqual(post.call_count, 1)
+
     def test_search_returns_memory_lines(self):
         client = MaasvClient()
         lines = ["[2023-05-08 13:56] A: x"]

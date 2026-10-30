@@ -67,7 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
-| Maasv | 85.26 | - | 74.83 | - | - | - |
+| Maasv | 86.10 | - | 75.43 | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -89,7 +89,8 @@ evidence archive and limitations.
 
 The Maasv rows (LoCoMo and BEAM 100K) are contributor-run: the Maasv team ran the
 unchanged pipeline and prompts on **2026-10-29** with OmniMemEval harness commit `7c79d46` plus the
-`maasv` adapter commit, using a self-hosted Maasv v0.4.46 service (top-k 20) and the dated models from
+`maasv` adapter commit, using a self-hosted Maasv v0.4.46 service (one store per
+evaluation user, top-k 20) and the dated models from
 the direct OpenAI API. Maasv is not open source; the per-question records
 support artifact arithmetic and answer/judge replay.
 See [Maasv deployment and result provenance](./maasv.md#result-provenance).
@@ -132,7 +133,7 @@ adversarial questions and covers 1,540 questions.
 | Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
-| Maasv | local/self-hosted | 89.42 | 80.50 | 83.80 | 67.71 | 85.26 | 1,462 |
+| Maasv | local/self-hosted | 90.01 | 80.85 | 84.11 | 73.96 | 86.10 | 1,473 |
 
 ### Published Reference Results
 
@@ -232,7 +233,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | mem9 | cloud | 65.75 +/- 38.92 | 5,372 | 57.30 +/- 39.03 | 4,947 |
 | MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
 | LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
-| Maasv | local/self-hosted | 74.83 +/- 32.87 | 8,676 | - | - |
+| Maasv | local/self-hosted | 75.43 +/- 32.08 | 8,419 | - | - |
 
 The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 +/- figure is the per-question standard deviation printed by the harness. See
