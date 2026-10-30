@@ -29,10 +29,10 @@ service. The offline adapter tests are `scripts/tests/unit/test_maasv_client.py`
 
 ## Result provenance
 
-Both runs on 2026-10-29 by the Maasv team, harness `7c79d46` plus the `maasv`
+All three runs on 2026-10-29/30 by the Maasv team, harness `7c79d46` plus the `maasv`
 adapter (no pipeline, prompt or metric changes), `gpt-4.1-mini-2025-04-14`
 answering and `gpt-4o-mini-2024-07-18` judging through the direct OpenAI API,
-one judge run each. An earlier run of each kept every evaluation user in one
+one judge run each. An earlier run of LoCoMo and BEAM 100K kept every evaluation user in one
 shared Maasv store, which reduced retrieval quality; those records stay
 published, marked superseded.
 
@@ -60,6 +60,18 @@ Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/locomo-202
 | Command | `run_beam_eval.sh --lib maasv --env .env.maasv --workers 1 --scale 100k --version maasv_v0446_beam100k_r2` (one invocation) |
 
 Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam100k-20261029-r2
+
+### BEAM 10M
+
+| Item | Value |
+| --- | --- |
+| Dataset | BEAM 10M from `prepare_beam.py --scale 10m`: 10 conversations, 208,696 messages, 200 questions |
+| Coverage | 200 of 200 questions searched, answered and judged; 0 failed, 0 skipped; 0 failed conversations at ingestion |
+| Score | Nugget score 61.69 ± 38.10 (per-question SD) |
+| Context tokens | 1,707,130 answer prompt tokens over 200 calls (8,535.6 per question) |
+| Command | `run_beam_eval.sh --lib maasv --env .env.maasv --workers 1 --scale 10m --version maasv_v0446_beam10m_r2` (one invocation, non-streaming, 2026-10-29 20:41 to 2026-10-30 08:16 ET) |
+
+Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam10m-20261030-r2
 
 The records support recomputing the aggregates and replaying the answer and
 judge stages.
