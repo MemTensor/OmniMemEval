@@ -29,7 +29,7 @@ service. The offline adapter tests are `scripts/tests/unit/test_maasv_client.py`
 
 ## Result provenance
 
-All three runs on 2026-10-29/30 by the Maasv team, harness `7c79d46` plus the `maasv`
+All runs on 2026-10-29/30 by the Maasv team, harness `7c79d46` plus the `maasv`
 adapter (no pipeline, prompt or metric changes), `gpt-4.1-mini-2025-04-14`
 answering and `gpt-4o-mini-2024-07-18` judging through the direct OpenAI API,
 one judge run each. An earlier run of LoCoMo and BEAM 100K kept every evaluation user in one
@@ -72,6 +72,18 @@ Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam100k-2
 | Command | `run_beam_eval.sh --lib maasv --env .env.maasv --workers 1 --scale 10m --version maasv_v0446_beam10m_r2` (one invocation, non-streaming, 2026-10-29 20:41 to 2026-10-30 08:16 ET) |
 
 Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam10m-20261030-r2
+
+### HaluMem-Medium
+
+| Item | Value |
+| --- | --- |
+| Dataset | `HaluMem-Medium.jsonl` from `prepare_halumem.py`, SHA-256 `486fbc130a5c8781a2af27ffa508a1d7855245137aa449c193ac4d29c45634e7`: 20 users, 1,387 sessions, 60,146 messages, 3,467 questions |
+| Coverage | 3,467 of 3,467 questions searched, answered and judged; 0 failed, 0 skipped; 0 failed users at ingestion |
+| Score | 81.05 (2,810 / 3,467) |
+| Context tokens | 7,418,455 answer prompt tokens over 3,467 calls (2,139.7 per question); 263,266 completion tokens |
+| Command | `run_halumem_eval.sh --lib maasv --env .env.maasv --workers 1 --variant medium --version maasv_v0446_halumem_r1` (one invocation, non-streaming, 2026-10-30 08:59 to 12:35 ET) |
+
+Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/halumem-20261030-r1
 
 The records support recomputing the aggregates and replaying the answer and
 judge stages.
