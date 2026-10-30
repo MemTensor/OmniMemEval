@@ -10,7 +10,7 @@ an embedding service). The adapter is an HTTP client only; it does not start
 or embed anything itself.
 
 - Source: <https://github.com/cachly-dev/cachly-mcp> (Apache-2.0). Verified
-  against `@cachly-dev/mcp-server` 0.10.217.
+  against `@cachly-dev/mcp-server` 0.10.218.
 - Service code for the add/search endpoints:
   <https://github.com/cachly-dev/cachly-mcp/tree/main/aml-service> (contract,
   start and settings in its README).
@@ -85,7 +85,10 @@ Answer model `gpt-4.1-mini-2025-04-14` and judge model
 The embedding models and Valkey settings belong to the service, not to this
 adapter. Reported runs embed through the cachly API with `bge-m3` (query and
 records) and `qwen3-embedding:0.6b` (second record vector), both served by
-Ollama on CPU.
+Ollama on CPU. When the service has a cachly API token, search also asks the
+API's cross-encoder reranker (`POST /api/v1/rerank`) to reorder the top 25
+candidates, with a 2,500 ms limit; `CACHLY_LESER=off` in the service
+environment switches it off.
 
 ## Adapter smoke
 
