@@ -85,5 +85,17 @@ Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/beam10m-20
 
 Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/halumem-20261030-r1
 
+### PersonaMem v2
+
+| Item | Value |
+| --- | --- |
+| Dataset | `benchmark/text/benchmark.csv` from `prepare_personamem.py`, SHA-256 `95f2a8a324aab7baf2af937feae12731369e2abf7cad5ab3e170594cb25a3e52`, plus 200 `chat_history_32k` files: 200 personas, 5,000 questions |
+| Coverage | 5,000 of 5,000 questions searched and answered; 0 failed, 0 skipped |
+| Score | 35.48 (1,774 / 5,000), option matching |
+| Context tokens | 14,158,503 answer prompt tokens over 5,000 calls (2,831.7 per question); 23,042 completion tokens |
+| Command | `run_pmv2_eval.sh --lib maasv --env .env.maasv --workers 1 --version maasv_v0446_pmv2_r1` (one invocation, non-streaming, 2026-10-30 12:38 to 15:32 ET) |
+
+Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/pmv2-20261030-r1
+
 The records support recomputing the aggregates and replaying the answer and
 judge stages.

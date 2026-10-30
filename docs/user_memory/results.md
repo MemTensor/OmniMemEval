@@ -67,7 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
-| Maasv | 86.10 | - | 75.43 | 61.69 | - | 81.05 |
+| Maasv | 86.10 | - | 75.43 | 61.69 | 35.48 | 81.05 |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -87,9 +87,10 @@ comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
 
-The Maasv rows (LoCoMo, BEAM 100K, BEAM 10M and HaluMem) are contributor-run: the
-Maasv team ran the unchanged pipeline and prompts on **2026-10-29** (BEAM 10M
-finished 2026-10-30; HaluMem ran 2026-10-30) with OmniMemEval harness commit `7c79d46` plus the
+The Maasv rows (LoCoMo, BEAM 100K, BEAM 10M, HaluMem and PersonaMem v2) are
+contributor-run: the Maasv team ran the unchanged pipeline and prompts on
+**2026-10-29** (BEAM 10M finished 2026-10-30; HaluMem and PersonaMem v2 ran
+2026-10-30) with OmniMemEval harness commit `7c79d46` plus the
 `maasv` adapter commit, using a self-hosted Maasv v0.4.46 service (one store per
 evaluation user, top-k 20) and the dated models from
 the direct OpenAI API. Maasv is not open source; the per-question records
@@ -283,6 +284,7 @@ the gold answer; repeated runs are averaged.
 | mem9 | cloud | 32.28 | 22.90 | 32.57 | 34.50 | 25.05 | 38.27 | 33.33 | 30.76 | 2,045 |
 | MemOS | cloud | 33.80 | 57.82 | 32.57 | 35.66 | 36.59 | 39.40 | 39.23 | 40.58 | 1,908 |
 | LCM-X | local/self-hosted | 32.98 | 32.82 | 34.15 | 31.59 | 32.68 | 39.21 | 36.84 | 33.96 | 3,534 |
+| Maasv | local/self-hosted | 35.67 | 37.21 | 30.28 | 34.62 | 33.86 | 39.77 | 35.89 | 35.48 | 2,832 |
 
 ### Published Reference Results
 
