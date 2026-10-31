@@ -97,5 +97,17 @@ Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/halumem-20
 
 Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/pmv2-20261030-r1
 
+### LongMemEval-S
+
+| Item | Value |
+| --- | --- |
+| Dataset | `longmemeval_s_cleaned.json` from `prepare_longmemeval.py --variant s`, SHA-256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`: 500 questions, 23,867 sessions, 246,750 messages |
+| Coverage | 500 of 500 questions searched, answered and judged; 0 failed, 0 skipped; 0 failed users at ingestion |
+| Score | 92.20 (461 / 500) |
+| Context tokens | 1,983,484 answer prompt tokens over 500 calls (3,967.0 per question); 81,136 completion tokens |
+| Command | `run_lme_eval.sh --lib maasv --env .env.maasv --workers 1 --version maasv_v0446_lme_r1` (one invocation, non-streaming, 2026-10-30 15:38 to 2026-10-31 04:06 ET) |
+
+Records: https://github.com/maasv-ai/omnimemeval-results/releases/tag/lme-20261031-r1
+
 The records support recomputing the aggregates and replaying the answer and
 judge stages.
