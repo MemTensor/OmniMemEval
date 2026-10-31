@@ -67,6 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
+| Maasv | 86.10 | 92.20 | 75.43 | 61.69 | 35.48 | 81.05 |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -85,6 +86,16 @@ for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
 comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
+
+The Maasv rows (LoCoMo, LongMemEval, BEAM 100K, BEAM 10M, HaluMem and
+PersonaMem v2) are contributor-run: the Maasv team ran the unchanged pipeline
+and prompts on **2026-10-29** (BEAM 10M finished 2026-10-30; HaluMem and
+PersonaMem v2 ran 2026-10-30; LongMemEval ran 2026-10-30 to 2026-10-31) with OmniMemEval harness commit `7c79d46` plus the
+`maasv` adapter commit, using a self-hosted Maasv v0.4.46 service (one store per
+evaluation user, top-k 20) and the dated models from
+the direct OpenAI API. Maasv is not open source; the per-question records
+support artifact arithmetic and answer/judge replay.
+See [Maasv deployment and result provenance](./maasv.md#result-provenance).
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -124,6 +135,7 @@ adversarial questions and covers 1,540 questions.
 | Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
+| Maasv | local/self-hosted | 90.01 | 80.85 | 84.11 | 73.96 | 86.10 | 1,473 |
 
 ### Published Reference Results
 
@@ -177,6 +189,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | mem9 | cloud | 95.71 | 94.64 | 56.67 | 77.44 | 62.41 | 85.90 | 78.00 | 3,805 |
 | MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
+| Maasv | local/self-hosted | 100.00 | 100.00 | 96.67 | 88.72 | 86.47 | 93.59 | 92.20 | 3,967 |
 
 ### Published Reference Results
 
@@ -223,6 +236,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | mem9 | cloud | 65.75 +/- 38.92 | 5,372 | 57.30 +/- 39.03 | 4,947 |
 | MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
 | LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
+| Maasv | local/self-hosted | 75.43 +/- 32.08 | 8,419 | 61.69 +/- 38.10 | 8,536 |
 
 The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 +/- figure is the per-question standard deviation printed by the harness. See
@@ -271,6 +285,7 @@ the gold answer; repeated runs are averaged.
 | mem9 | cloud | 32.28 | 22.90 | 32.57 | 34.50 | 25.05 | 38.27 | 33.33 | 30.76 | 2,045 |
 | MemOS | cloud | 33.80 | 57.82 | 32.57 | 35.66 | 36.59 | 39.40 | 39.23 | 40.58 | 1,908 |
 | LCM-X | local/self-hosted | 32.98 | 32.82 | 34.15 | 31.59 | 32.68 | 39.21 | 36.84 | 33.96 | 3,534 |
+| Maasv | local/self-hosted | 35.67 | 37.21 | 30.28 | 34.62 | 33.86 | 39.77 | 35.89 | 35.48 | 2,832 |
 
 ### Published Reference Results
 
@@ -311,6 +326,7 @@ multi-hop inference, and dynamic updates.
 | mem9 | cloud | 54.56 | 94.20 | 68.79 | 80.16 | 70.71 | 38.89 | 72.80 | 893 |
 | MemOS | cloud | 69.03 | 91.30 | 86.48 | 83.51 | 74.24 | 55.00 | 80.91 | 1,187 |
 | LCM-X | local/self-hosted | 73.06 | 89.73 | 85.96 | 82.31 | 78.79 | 62.78 | 81.68 | 1,985 |
+| Maasv | local/self-hosted | 71.98 | 89.98 | 85.57 | 81.64 | 77.27 | 60.00 | 81.05 | 2,140 |
 
 ### Published Reference Results
 
