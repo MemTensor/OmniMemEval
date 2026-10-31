@@ -185,6 +185,20 @@ def ingest_session(client, session, frame, metadata):
         client.add(speaker_a_messages, speaker_a_user_id,
                     session_key=session_key)
 
+    # ── cachly: one shared brain per conversation ────────────────────────
+    # LoCoMo ships a description with every shared photo (blip_caption), and
+    # some questions ask about these photos. cachly keeps it with the message,
+    # as the Hindsight client does.
+    elif frame == "cachly":
+        spoken = [c for c in session if c.get("speaker") in (metadata["speaker_a"], metadata["speaker_b"])]
+        messages = [
+            {**msg, "content": msg["content"] + f" [image: {chat['blip_caption']}]"}
+            if chat.get("blip_caption") else msg
+            for chat, msg in zip(spoken, speaker_a_messages)
+        ]
+        inject_time(messages, dt, frame)
+        client.add(messages, speaker_a_user_id)
+
     # ── Default: dual-speaker with inject_time ───────────────────────────
     else:
         inject_time(speaker_a_messages, dt, frame)
