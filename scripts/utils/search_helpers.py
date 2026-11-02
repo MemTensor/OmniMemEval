@@ -198,6 +198,7 @@ DEFAULT_SEARCH_DISPATCH = {
     "memorylake": generic_text_search,
     "mem9": generic_text_search,
     "lcmx": generic_text_search,
+    "maasv": generic_text_search,
 }
 
 
