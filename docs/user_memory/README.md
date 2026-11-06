@@ -271,6 +271,7 @@ Supported backend keys are:
 | `backboard` | Backboard.io |
 | `mem9` | mem9 |
 | `lcmx` | [LCM-X setup and run configuration](./lcmx.md) |
+| `threadatlas` | [ThreadAtlas setup and run configuration](./threadatlas.md) |
 
 Follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter)
 for integration, configuration, isolation, and testing, and the
