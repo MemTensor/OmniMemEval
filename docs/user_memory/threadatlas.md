@@ -55,7 +55,7 @@ the judge, with every other setting at the harness default.
 
 | | |
 |---|---|
-| Backend | `threadatlas_memory` at [jhffmn82/threadatlas@a3337c5f](https://github.com/jhffmn82/threadatlas/tree/a3337c5f/threadatlas_memory) |
+| Backend | `threadatlas_memory`, published at [jhffmn82/threadatlas@a3337c5f](https://github.com/jhffmn82/threadatlas/tree/a3337c5f/threadatlas_memory). Each run used the copy in the Kaggle dataset [`jhffmn/threadatlas-omni-kit`](https://www.kaggle.com/datasets/jhffmn/threadatlas-omni-kit): version 2 for LoCoMo with `gpt-5.6-luna`, version 3 for LongMemEval, version 4 for LoCoMo with `gpt-4.1-mini-2025-04-14`. Version 3 added a database connection per thread and version 4 the `THREADATLAS_READ_MODEL` setting; the published package is version 4 with comments updated |
 | Deployment | local, in-process, one store per user under `THREADATLAS_STATE_DIR` |
 | Store | `threadatlas.sqlite` and `threadatlas.npy` from the public Kaggle dataset [`jhffmn/threadatlas-global-chunks`](https://www.kaggle.com/datasets/jhffmn/threadatlas-global-chunks) |
 | Reading model | `gpt-5.6-luna`, the default; one LoCoMo run set `THREADATLAS_READ_MODEL="gpt-4.1-mini-2025-04-14"` |
