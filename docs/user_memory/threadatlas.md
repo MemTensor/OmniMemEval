@@ -83,3 +83,8 @@ PY
 
 This shortens the prepared data files in place; run the prepare scripts again before a full run. The
 Kaggle notebook in the results repository does the same with `RUN = "smoke"`.
+
+These commands ran as written on 2026-11-07 on a Kaggle CPU notebook (Python 3.13.18, kit version 5,
+`gpt-5.6-luna`): every record finished, LongMemEval 20 of 20 and LoCoMo 141 of 152 judged right. The
+[records and installed package versions](https://github.com/jhffmn82/threadatlas/tree/main/omnimemeval/smoke)
+are with the results.
