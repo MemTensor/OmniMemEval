@@ -67,6 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
+| ThreadAtlas | 89.22 | 87.40 | - | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -85,6 +86,16 @@ for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
 comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
+
+ThreadAtlas rows are contributor-run: Justin Hoffman ran the unchanged pipeline and prompts on **2026-11-07**
+with OmniMemEval harness commit
+[`7c79d46e31dd85f3da2509b430bba9406656dd28`](https://github.com/MemTensor/OmniMemEval/tree/7c79d46e31dd85f3da2509b430bba9406656dd28),
+using the in-process `threadatlas` adapter, local fastembed `BAAI/bge-small-en-v1.5` embeddings and top-k 20, with
+the answer and judge models called directly through OpenAI. ThreadAtlas reads each session into facts with
+`gpt-5.6-luna`; a LoCoMo run with `gpt-4.1-mini-2025-04-14` reading scored 88.44. The LongMemEval sessions were
+read into ThreadAtlas's store before the run, and `add()` copies each one into the user's store. See
+[ThreadAtlas](./threadatlas.md) for the adapter, and the
+[results, per-question records, notebook and checksums](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) for every run.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -124,6 +135,7 @@ adversarial questions and covers 1,540 questions.
 | Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
+| ThreadAtlas | local/self-hosted | 94.17 | 83.69 | 86.29 | 71.88 | 89.22 | 6,190 |
 
 ### Published Reference Results
 
@@ -177,6 +189,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | mem9 | cloud | 95.71 | 94.64 | 56.67 | 77.44 | 62.41 | 85.90 | 78.00 | 3,805 |
 | MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
+| ThreadAtlas | local/self-hosted | 100.00 | 96.43 | 86.67 | 83.46 | 79.70 | 89.74 | 87.40 | 4,332 |
 
 ### Published Reference Results
 
