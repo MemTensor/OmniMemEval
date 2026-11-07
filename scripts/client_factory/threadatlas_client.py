@@ -5,8 +5,8 @@ search with a packet of those records: a header that says how to read them, then
 bundles, each a dated record with the source passage it came from.
 
 Each add() call is one session. A session ThreadAtlas has already read (byte for byte, at the same
-minute) is taken from its store; any other is read on the spot. Search runs on a store built from
-that user's sessions alone.
+minute) is taken from its store; any other is read on the spot. Either way it is written into that
+user's own store, and search runs on that store alone.
 
 Configurable env vars:
     THREADATLAS_REPO        - the ThreadAtlas checkout to import (required; never modified)
@@ -14,6 +14,7 @@ Configurable env vars:
     THREADATLAS_STORE_DIR   - the pipeline's store (threadatlas.sqlite, threadatlas.npy)
     THREADATLAS_STEP0_DIR   - the pipeline's Step 0 export (documents.jsonl, units.jsonl)
     THREADATLAS_SOURCE      - the benchmark file the store's chats were read from
+    THREADATLAS_READ_MODEL  - the model that reads new sessions (default gpt-5.6-luna)
     OPENAI_API_KEY          - for reading sessions the store has not read
 """
 

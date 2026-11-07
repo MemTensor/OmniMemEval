@@ -7,12 +7,13 @@ them with the source passages beside them. Each user has a store of their own.
 ## How it answers the harness
 
 - `add(messages, user_id)`: one call is one session. ThreadAtlas renders the session as a document of
-  dated turns (Step 0) and reads its facts with `gpt-5.6-luna` (Step 1), checking every fact against the
-  passage it was read from. A session that ThreadAtlas has already read, word for word and at the same
-  minute, is taken from its prebuilt store instead of being read again; every session of
-  `longmemeval_s_cleaned.json` is such a session, since the store was built from `longmemeval_s.json`.
-- `search(query, user_id, top_k)`: on the user's first search, a store is built from that user's sessions
-  alone: the facts, the chats' own text in 256-token chunks, a keyword index and a vector per record.
+  dated turns (Step 0) and reads its facts with `gpt-5.6-luna`, or the model `THREADATLAS_READ_MODEL`
+  names (Step 1), checking every fact against the passage it was read from. A session that ThreadAtlas
+  has already read, word for word and at the same minute, is taken from its prebuilt store instead of
+  being read again; every session of `longmemeval_s_cleaned.json` is such a session, since the store was
+  built from `longmemeval_s.json`. Either way the session is written into the user's own store: its
+  facts, the chat's own text in 256-token chunks, keyword rows and a vector per record.
+- `search(query, user_id, top_k)`: opens the user's store, which holds that user's sessions alone.
   Retrieval fuses vector and keyword search by rank, walks two hops through the graph, and returns a
   header that says how to read the records, then up to `top_k - 1` records with their source passages.
 - `delete(user_id)`: removes that user's folder; other users are untouched.
