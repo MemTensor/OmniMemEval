@@ -50,3 +50,36 @@ python -m unittest scripts/tests/unit/test_threadatlas_client.py
 
 Reported runs use `TOPK=20`, `gpt-4.1-mini-2025-04-14` as the answer model and `gpt-4o-mini-2024-07-18` as
 the judge, with every other setting at the harness default.
+
+## Version, deployment and settings of the reported runs
+
+| | |
+|---|---|
+| Backend | `threadatlas_memory` at [jhffmn82/threadatlas@a3337c5f](https://github.com/jhffmn82/threadatlas/tree/a3337c5f/threadatlas_memory) |
+| Deployment | local, in-process, one store per user under `THREADATLAS_STATE_DIR` |
+| Store | `threadatlas.sqlite` and `threadatlas.npy` from the public Kaggle dataset [`jhffmn/threadatlas-global-chunks`](https://www.kaggle.com/datasets/jhffmn/threadatlas-global-chunks) |
+| Reading model | `gpt-5.6-luna`, the default; one LoCoMo run set `THREADATLAS_READ_MODEL="gpt-4.1-mini-2025-04-14"` |
+| Retrieval | the defaults: two hops from 40 hits of each search (`THREADATLAS_HOPS`, `THREADATLAS_HITS`) |
+| Workers | `--workers 10` for LoCoMo and `--workers 4` for LongMemEval; `LLM_WORKERS=10` |
+
+The runs, their records and their exact commands are in
+[jhffmn82/threadatlas/omnimemeval](https://github.com/jhffmn82/threadatlas/tree/main/omnimemeval).
+
+## Smoke run
+
+A bounded real-backend check before a full run: the first 20 LongMemEval users and the first LoCoMo
+conversation, through every step.
+
+```bash
+python - <<'PY'
+import json
+for path, keep in (("data/longmemeval/longmemeval_s_cleaned.json", 20), ("data/locomo/locomo10.json", 1)):
+    rows = json.load(open(path, encoding="utf-8"))
+    json.dump(rows[:keep], open(path, "w", encoding="utf-8"))
+PY
+./scripts/run_lme_eval.sh --lib threadatlas --env .env.threadatlas --version smoke --workers 4
+./scripts/run_locomo_eval.sh --lib threadatlas --env .env.threadatlas --version smoke --workers 10
+```
+
+This shortens the prepared data files in place; run the prepare scripts again before a full run. The
+Kaggle notebook in the results repository does the same with `RUN = "smoke"`.

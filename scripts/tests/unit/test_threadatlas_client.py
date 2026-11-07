@@ -1,4 +1,5 @@
-"""Unit tests for the ThreadAtlas client: configuration, registration, add/search/delete, and user isolation.
+"""Unit tests for the ThreadAtlas client: configuration, registration, add/search/delete, user isolation
+and failures.
 
 The ThreadAtlas package is replaced by a small stand-in with the same three calls, so these tests run
 offline and need no store.
@@ -18,9 +19,13 @@ STAND_IN = textwrap.dedent('''
     MEMORY = {}
 
     def add(turns, user_id, minute):
+        if turns[0]["content"] == "FAIL":
+            raise RuntimeError("reading failed")
         MEMORY.setdefault(user_id, []).append((minute, turns))
 
     def search(query, user_id, top_k):
+        if query == "FAIL":
+            raise RuntimeError("search failed")
         found = ["HEADER"]
         for minute, turns in MEMORY.get(user_id, []):
             for turn in turns:
@@ -85,6 +90,18 @@ class TestThreadAtlasClient(unittest.TestCase):
         client.delete("a")
         self.assertEqual(client.search("dog", "a", 20), ["HEADER"])
         self.assertEqual(len(client.search("Max", "b", 20)), 2)
+
+    def test_add_failure_propagates_and_stores_nothing(self):
+        client = create_client("threadatlas")
+        with self.assertRaises(RuntimeError):
+            client.add([{"role": "user", "content": "FAIL", "chat_time": "2023-05-20T02:38:00"}], "u1")
+        self.assertEqual(client.search("anything", "u1", 20), ["HEADER"])
+
+    def test_search_failure_propagates(self):
+        client = create_client("threadatlas")
+        client.add([{"role": "user", "content": "my dog is Rex", "chat_time": "2023-05-20T02:38:00"}], "u1")
+        with self.assertRaises(RuntimeError):
+            client.search("FAIL", "u1", 20)
 
 
 if __name__ == "__main__":
