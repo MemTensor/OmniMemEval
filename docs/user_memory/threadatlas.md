@@ -63,7 +63,7 @@ the judge, with every other setting at the harness default.
 | Workers | `--workers 10` for LoCoMo and `--workers 4` for LongMemEval; `LLM_WORKERS=10` |
 
 The runs, their records and their exact commands are in
-[jhffmn82/threadatlas/omnimemeval](https://github.com/jhffmn82/threadatlas/tree/main/omnimemeval).
+[jhffmn82/threadatlas/omnimemeval](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval).
 
 ## Smoke run
 
@@ -86,5 +86,5 @@ Kaggle notebook in the results repository does the same with `RUN = "smoke"`.
 
 These commands ran as written on 2026-11-07 on a Kaggle CPU notebook (Python 3.13.18, kit version 5,
 `gpt-5.6-luna`): every record finished, LongMemEval 20 of 20 and LoCoMo 141 of 152 judged right. The
-[records and installed package versions](https://github.com/jhffmn82/threadatlas/tree/main/omnimemeval/smoke)
+[records and installed package versions](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval/smoke)
 are with the results.

@@ -95,7 +95,7 @@ the answer and judge models called directly through OpenAI. ThreadAtlas reads ea
 `gpt-5.6-luna`; a LoCoMo run with `gpt-4.1-mini-2025-04-14` reading scored 88.44. The LongMemEval sessions were
 read into ThreadAtlas's store before the run, and `add()` copies each one into the user's store. See
 [ThreadAtlas](./threadatlas.md) for the adapter, and the
-[results, per-question records, notebook and checksums](https://github.com/jhffmn82/threadatlas/tree/main/omnimemeval) for every run.
+[results, per-question records, notebook and checksums](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) for every run.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
