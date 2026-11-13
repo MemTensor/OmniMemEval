@@ -19,7 +19,15 @@ class CachlyClient(BaseApiClient):
         CACHLY_AML_KEY            - bearer key of the service (required; environment only)
         CACHLY_ADD_TIMEOUT        - seconds per add call (default: 3600; add waits for embeddings)
         CACHLY_SEARCH_TIMEOUT     - seconds per search call (default: 120)
+
+    Search returns the top records as text, one per line. When the service orders
+    them oldest first (``"ordnung": "zeit"``), the first line says so.
     """
+
+    TIME_ORDER_NOTE = (
+        "(Memories in chronological order, oldest first; "
+        "when two memories disagree, the later one is the current state.)"
+    )
 
     def __init__(self):
         url = env_str("CACHLY_AML_URL", "")
@@ -103,7 +111,12 @@ class CachlyClient(BaseApiClient):
             return resp.json()
 
         res = self._retry(_do)
-        return "\n".join(d.get("content", "") for d in res.get("data", []))
+        lines = [d.get("content", "") for d in res.get("data", [])]
+        # A service that returns its records oldest first says so ("ordnung": "zeit");
+        # the answer model then reads that as the first line instead of guessing the order.
+        if lines and res.get("ordnung") == "zeit":
+            lines.insert(0, self.TIME_ORDER_NOTE)
+        return "\n".join(lines)
 
     def delete(self, user_id):
         """Remove the store of ``user_id``. Unknown users are not an error."""

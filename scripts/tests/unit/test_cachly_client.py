@@ -147,6 +147,17 @@ class TestCachlyClient(unittest.TestCase):
         self.post.return_value = _response(200, {"data": []})
         self.assertEqual(self.client.search("q", "u1", 5), "")
 
+    def test_search_time_order_is_stated_first(self):
+        body = {"data": [{"content": "older"}, {"content": "newer"}], "ordnung": "zeit"}
+        self.post.return_value = _response(200, body)
+        lines = self.client.search("q", "u1", 5).split("\n")
+        self.assertEqual(lines[0], CachlyClient.TIME_ORDER_NOTE)
+        self.assertEqual(lines[1:], ["older", "newer"])
+
+    def test_search_time_order_without_records_stays_empty(self):
+        self.post.return_value = _response(200, {"data": [], "ordnung": "zeit"})
+        self.assertEqual(self.client.search("q", "u1", 5), "")
+
     def test_users_are_isolated(self):
         self.post.return_value = _response(200, {"data": []})
         self.client.search("q", "user-a", 5)
