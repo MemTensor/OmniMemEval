@@ -67,6 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
+| cachly | 90.71 | 89.80 | 73.04 | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -85,6 +86,18 @@ for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
 comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
+
+The cachly row is contributor-run: Heinrich Neb (cachly) ran each suite once
+with OmniMemEval harness commit
+[`f7476c5502115542eca9971195bf8c5ca97b6256`](https://github.com/MemTensor/OmniMemEval/tree/f7476c5502115542eca9971195bf8c5ca97b6256)
+and the `cachly` adapter (self-hosted add/search service, top-k 20, answer
+and judge models as in the template through the OpenAI API): LoCoMo on
+**2026-10-30** with cachly 0.10.218, BEAM 100K on **2026-11-13** and
+LongMemEval on **2026-11-13/14** with the service of cachly 0.10.253, which
+returns its records oldest first. Search used cachly's own cross-encoder
+reranker, whose model is not public. See
+[cachly result provenance](./cachly.md#result-provenance) for the evidence
+archives, earlier runs and limitations.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -124,6 +137,7 @@ adversarial questions and covers 1,540 questions.
 | Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
+| cachly | local/self-hosted | 95.01 | 87.94 | 86.29 | 76.04 | 90.71 | 6,673 |
 
 ### Published Reference Results
 
@@ -177,6 +191,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | mem9 | cloud | 95.71 | 94.64 | 56.67 | 77.44 | 62.41 | 85.90 | 78.00 | 3,805 |
 | MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
+| cachly | local/self-hosted | 100.00 | 98.21 | 90.00 | 84.96 | 84.96 | 91.03 | 89.80 | 4,541 |
 
 ### Published Reference Results
 
@@ -223,10 +238,15 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | mem9 | cloud | 65.75 +/- 38.92 | 5,372 | 57.30 +/- 39.03 | 4,947 |
 | MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
 | LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
+| cachly | local/self-hosted | 73.04 +/- 34.94 | 5,189 | - | - |
 
 The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 +/- figure is the per-question standard deviation printed by the harness. See
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22).
+
+The cachly 100K cell is a single contributor run (400 questions, 2026-11-13).
+cachly's four earlier BEAM 100K runs (70.28 to 72.52) are listed in
+[cachly BEAM 100K provenance](./cachly.md#beam-100k).
 
 ### Published Reference Results
 

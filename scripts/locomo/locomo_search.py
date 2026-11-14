@@ -268,6 +268,7 @@ def search_query(client, query, metadata, frame, top_k=20):
         "backboard": backboard_search,
         "mem9": generic_text_search,
         "lcmx": generic_text_search,
+        "cachly": shared_conv_search,
     }
     search_fn = _search_dispatch.get(frame)
     if search_fn is None:
