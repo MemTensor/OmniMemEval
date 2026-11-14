@@ -119,6 +119,16 @@ class CachlyClient(BaseApiClient):
         return "\n".join(lines)
 
     def delete(self, user_id):
-        """Remove the store of ``user_id``. Unknown users are not an error."""
-        resp = self._post("/v1/memory/delete", json={"user_id": user_id})
-        resp.raise_for_status()
+        """Remove the store of ``user_id``. Unknown users are not an error.
+
+        Streaming runs delete every user after its questions, so a delete gets
+        the same time limit and retries as a search.
+        """
+        payload = {"user_id": user_id}
+
+        def _do():
+            resp = self._post("/v1/memory/delete", json=payload, timeout=self._search_timeout)
+            resp.raise_for_status()
+            return resp.json()
+
+        self._retry(_do)

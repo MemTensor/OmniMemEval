@@ -174,6 +174,12 @@ class TestCachlyClient(unittest.TestCase):
         (url,), kwargs = self.post.call_args
         self.assertEqual(url, f"{URL}/v1/memory/delete")
         self.assertEqual(kwargs["json"], {"user_id": "u1"})
+        self.assertEqual(kwargs["timeout"], 120)
+
+    def test_delete_5xx_is_retried(self):
+        self.post.side_effect = [_response(503), _response(200, {"deleted": True})]
+        self.client.delete("u1")
+        self.assertEqual(self.post.call_count, 2)
 
     def test_delete_unknown_user_is_ok(self):
         self.post.return_value = _response(200, {"deleted": False})
