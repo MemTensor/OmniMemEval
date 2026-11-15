@@ -67,7 +67,7 @@ the reproduced OmniMemEval scores.
 | Backboard.io | 22.40 | - | - | - | - | - |
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
-| cachly | 90.71 | 89.80 | 73.04 | - | - | - |
+| cachly | 90.71 | 89.60 | 73.04 | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -87,14 +87,16 @@ comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
 evidence archive and limitations.
 
-The cachly row is contributor-run: Heinrich Neb (cachly) ran each suite once
+The cachly row is contributor-run: Heinrich Neb (cachly) ran the suites
 with OmniMemEval harness commit
 [`f7476c5502115542eca9971195bf8c5ca97b6256`](https://github.com/MemTensor/OmniMemEval/tree/f7476c5502115542eca9971195bf8c5ca97b6256)
 and the `cachly` adapter (self-hosted add/search service, top-k 20, answer
 and judge models as in the template through the OpenAI API): LoCoMo on
-**2026-10-30** with cachly 0.10.218, BEAM 100K on **2026-11-13** and
-LongMemEval on **2026-11-13/14** with the service of cachly 0.10.253, which
-returns its records oldest first. Search used cachly's own cross-encoder
+**2026-10-30** with cachly 0.10.218, BEAM 100K on **2026-11-13** with the
+service of cachly 0.10.253, which returns its records oldest first, and
+LongMemEval on **2026-11-14** with that service after a time-zone fix. The
+LongMemEval cell replaces a first run of 2026-11-13/14 (89.80) that had the
+time-zone fault. Search used cachly's own cross-encoder
 reranker, whose model is not public. See
 [cachly result provenance](./cachly.md#result-provenance) for the evidence
 archives, earlier runs and limitations.
@@ -191,7 +193,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | mem9 | cloud | 95.71 | 94.64 | 56.67 | 77.44 | 62.41 | 85.90 | 78.00 | 3,805 |
 | MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
-| cachly | local/self-hosted | 100.00 | 98.21 | 90.00 | 84.96 | 84.96 | 91.03 | 89.80 | 4,541 |
+| cachly | local/self-hosted | 100.00 | 98.21 | 86.67 | 87.97 | 83.46 | 88.46 | 89.60 | 4,564 |
 
 ### Published Reference Results
 

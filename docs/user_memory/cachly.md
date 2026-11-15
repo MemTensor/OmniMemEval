@@ -10,8 +10,9 @@ an embedding service). The adapter is an HTTP client only; it does not start
 or embed anything itself.
 
 - Source: <https://github.com/cachly-dev/cachly-mcp> (Apache-2.0). Verified
-  against `@cachly-dev/mcp-server` 0.10.218 (LoCoMo) and the service of
-  0.10.253 (LongMemEval, BEAM 100K).
+  against `@cachly-dev/mcp-server` 0.10.218 (LoCoMo), the service of 0.10.253
+  (BEAM 100K) and the service at cachly-mcp commit `9ad8c8aee423`
+  (LongMemEval; 0.10.253 plus a time-zone fix).
 - Service code for the add/search endpoints:
   <https://github.com/cachly-dev/cachly-mcp/tree/main/aml-service> (contract,
   start and settings in its README).
@@ -127,8 +128,9 @@ Run a suite from the repository root after configuring `.env.cachly`:
 ## Result provenance
 
 The cachly rows in [results.md](./results.md) were produced by Heinrich Neb
-(cachly), one run per suite, with the answer and judge models of the template
-through the OpenAI API.
+(cachly) with the answer and judge models of the template through the OpenAI
+API. Each reported cell is one run; for LongMemEval it is the second scored
+run, which replaces a first run with a time-zone fault (see below).
 
 ### LoCoMo
 
@@ -172,40 +174,68 @@ successes and no skipped records; the run was done once.
 
 ### LongMemEval
 
-Ingestion and search ran from 2026-11-13 21:51 to 2026-11-14 04:35 UTC in
-streaming mode (per question: delete, add, search, delete; eight strands side
-by side), answer and judge stages from 04:36 to 04:43 UTC. The service was
-`aml-service/dienst.mjs` as published in cachly-mcp commit `2e1b0e6501c3`
-(`@cachly-dev/mcp-server` 0.10.253). The run used a copy taken from
-cachly-dev/cachly `fbfead1e` before the time order was merged; it differs
-only in the default of `AML_ZEITORDNUNG`, which the run set to `1`.
+The reported cell is the second scored run (r2). Ingestion and search ran on
+2026-11-14 from 16:14 to 23:38 UTC in streaming mode (per question: delete,
+add, search, delete; eight strands side by side), answer and judge stages
+from 23:38 to 23:45 UTC. The service was `aml-service/` as published in
+cachly-mcp commit `9ad8c8aee423e096938ae733ca6d213ae3261361` (0.10.253 plus
+the time-zone fix below); the files as run are byte-identical to it.
 
-The [public evidence release](https://github.com/cachly-dev/OmniMemEval/releases/tag/cachly-lme-beam-results-20261114)
-provides the [LongMemEval archive](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-lme-beam-results-20261114/cachly-omnimemeval-lme-20261114.tar.gz),
-whose SHA-256 is `3b429da8687d6aea0cf6aee6378b3873661aeb9ad148762f0d4d7f77839fb23d`.
+The [public evidence release](https://github.com/cachly-dev/OmniMemEval/releases/tag/cachly-lme-results-20261114-r2)
+provides the [LongMemEval archive](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-lme-results-20261114-r2/cachly-omnimemeval-lme-20261114-r2.tar.gz),
+whose SHA-256 is `b5d38522756227f87b634672a4de9dcede8343a4ad4076aa04dbe78463124a85`.
 It holds the per-question records, stage status files, the streaming log of
-each strand, answer-token receipts, the run settings, the service file as run,
-a recompute script, a request check and a `MANIFEST.json` with file hashes.
-Search, answer and judge each report 500 successes and no skipped records.
+each strand, answer-token receipts, the run settings, the service files as
+run, a recompute script, a request check, the per-question comparison with
+r1 and a `MANIFEST.json` with file hashes. Search, answer and judge each
+report 500 successes and no skipped records.
 
+- **Why a second run.** The first run (r1, 2026-11-13/14, 89.80, archive
+  [`cachly-omnimemeval-lme-20261114.tar.gz`](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-lme-beam-results-20261114/cachly-omnimemeval-lme-20261114.tar.gz),
+  SHA-256 `3b429da8687d6aea0cf6aee6378b3873661aeb9ad148762f0d4d7f77839fb23d`)
+  ran with a time-zone fault: the service labels records with the session day
+  in UTC but computed the date it adds after "today" or "tonight" in the
+  local time of the machine (Europe/Berlin). For sessions late in the UTC day
+  the two disagreed; the r1 contexts held 14 such dates. The fault was found
+  by comparing r1 question by question with the per-question records of the
+  Maasv submission (PR #19): on the 14 temporal-reasoning questions whose
+  evidence session falls on the next day in Berlin, r1 had 7 correct and
+  Maasv 13; on the other 119 both scored 89.08 %. LongMemEval answers were
+  read to find it. The fix (`process.env.TZ = 'UTC'` in the service,
+  cachly-dev/cachly PR #1072) changes nothing else. Before r2 started, it was
+  written down that r2 replaces r1 whatever its score and that there is no
+  third run.
+- **Effect of the fix.** r2 has no "today" date that differs from its label
+  (0 of 290); the 14 late-evidence temporal questions went from 7 to 11
+  correct; the other 435 questions went from 91.49 to 90.34. Overall r2 is
+  one question below r1 (89.60 against 89.80). The archive's `compare_r1.py`
+  recomputes these numbers from both archives.
+- **Run-to-run variation.** 29 questions changed their verdict between r1
+  and r2 (14 to correct, 15 to wrong); 7 of them had the same context in both
+  runs, so only the answer or the judge changed. The median overlap of the
+  two contexts (8-word sequences) is 0.90, so retrieval also varies between
+  runs; the cause was not isolated.
+- **Other suites.** The BEAM 100K cell ran with the service before the fix;
+  none of its 69 "today" dates differs from its label. The LoCoMo cell's
+  contexts were checked the same way: none of 1,746 differs.
 - **Time order.** The service returns the top 20 records oldest first and
   marks the response, so all 500 contexts start with the time-order line.
 - **Embeddings and reranker.** `bge-m3` and `qwen3-embedding:0.6b` on Ollama
-  on a rented GPU (vast.ai, RTX 4080 SUPER, Czechia), reached through a local
-  stand-in for the cachly embedding API. The reranker (an int8 ONNX build of
-  cachly's model, not public) ran on a private host; how many searches it
-  reordered was not recorded, and no search with it off was run.
+  on a rented GPU (vast.ai, RTX 4080, Germany; r1: RTX 4080 SUPER, Czechia),
+  reached through a local stand-in for the cachly embedding API. The reranker
+  (an int8 ONNX build of cachly's model, not public) ran on a private host;
+  how many searches it reordered was not recorded, and no search with it off
+  was run.
 - **Adapter as run.** `check_requests.py lme` drives the client as run and
   this adapter through the harness's own code for all 500 questions: the
   25,367 requests (23,867 add, 500 search, 1,000 delete) are identical. The
   add count equals the count in the service log.
 - **Context Tokens** is answer prompt tokens divided by answer calls
-  (2,270,681 / 500). The pipeline's `grades.json` value (4,330) counts the
+  (2,281,769 / 500). The pipeline's `grades.json` value (4,352) counts the
   search context alone.
-- **Earlier attempts.** LongMemEval was answered and judged once. A
-  10-question probe and a first full attempt without time order (stopped
-  after 101 questions) were never answered or judged. The time order came
-  from BEAM 100K; no LongMemEval answers were read to make changes.
+- **Earlier attempts.** Besides r1 and r2, a 10-question probe and a first
+  full attempt without time order (stopped after 101 questions) were never
+  answered or judged. The time order came from BEAM 100K.
 - **Uncertainty.** One question is 0.2 points; the binomial standard error of
   a score near 90 % over 500 questions is about 1.35 points.
 
@@ -213,9 +243,10 @@ Search, answer and judge each report 500 successes and no skipped records.
 
 Ingestion and search ran on 2026-11-13 from 19:52 to 20:12 UTC, answer and
 judge stages from 20:12 to 20:32 UTC, with the same service, embeddings and
-reranker as the LongMemEval run (one store per conversation, not streaming).
+reranker as the first LongMemEval run r1, that is before the time-zone fix
+(one store per conversation, not streaming).
 
-The same release provides the [BEAM 100K archive](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-lme-beam-results-20261114/cachly-omnimemeval-beam100k-20261113.tar.gz),
+The [release of r1](https://github.com/cachly-dev/OmniMemEval/releases/tag/cachly-lme-beam-results-20261114) provides the [BEAM 100K archive](https://github.com/cachly-dev/OmniMemEval/releases/download/cachly-lme-beam-results-20261114/cachly-omnimemeval-beam100k-20261113.tar.gz),
 whose SHA-256 is `f32a8f51ac21db15925957b44abc8951625ab87df1864ea24b5ba7c1edbb427b`,
 with the same kinds of files and the aggregates of the earlier runs below.
 Search, answer and judge each report 400 successes and no skipped records;
