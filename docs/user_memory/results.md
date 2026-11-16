@@ -69,6 +69,7 @@ the reproduced OmniMemEval scores.
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
 | Maasv | 87.73 | 91.20 | 76.38 | 65.09 | 39.86 | 82.29 |
 | cachly | 90.71 | 89.60 | 73.04 | - | - | - |
+| ThreadAtlas | 88.90 | 87.00 | 73.12 | - | 36.92 | 83.82 |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -112,6 +113,22 @@ reranker, whose model is not public. See
 [cachly result provenance](./cachly.md#result-provenance) for the evidence
 archives, earlier runs and limitations.
 
+The ThreadAtlas row is contributor-run: Justin Hoffman (ThreadAtlas) ran the
+unchanged pipeline and prompts on **2026-11-16** with OmniMemEval harness
+commit
+[`5e8cdc115b2eff391e72192dbfe3786ebadc9005`](https://github.com/MemTensor/OmniMemEval/tree/5e8cdc115b2eff391e72192dbfe3786ebadc9005)
+and its `threadatlas` adapter (in-process `threadatlas_memory` at
+[`015143c`](https://github.com/jhffmn82/threadatlas/tree/015143cdb995497022b88878c8ebc8c5223d1eee/threadatlas_memory),
+one store per evaluation user, top-k 20), using the dated models of the
+template from the direct OpenAI API. Memory reading used
+`gpt-4.1-mini-2025-04-14`, and every session was read during the run. The
+LoCoMo cell is the last of three full runs in this setting (88.44, 89.68 and
+88.90); each other cell is a single full run. See
+[ThreadAtlas result provenance](./threadatlas.md#result-provenance) for the
+run records, the earlier runs and the settings. The ThreadAtlas rows under
+Published Reference Results are separate runs of 2026-11-07 with
+`gpt-5.6-luna` memory reading.
+
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
 setup because of account/API access, service availability, benchmark support,
@@ -152,6 +169,7 @@ adversarial questions and covers 1,540 questions.
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
 | Maasv | local/self-hosted | 91.80 | 82.98 | 85.98 | 71.88 | 87.73 | 1,551 |
 | cachly | local/self-hosted | 95.01 | 87.94 | 86.29 | 76.04 | 90.71 | 6,673 |
+| ThreadAtlas | local/self-hosted | 93.22 | 85.11 | 86.29 | 70.83 | 88.90 | 6,213 |
 
 ### Published Reference Results
 
@@ -208,6 +226,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
 | Maasv | local/self-hosted | 98.57 | 98.21 | 93.33 | 89.47 | 86.47 | 89.74 | 91.20 | 3,999 |
 | cachly | local/self-hosted | 100.00 | 98.21 | 86.67 | 87.97 | 83.46 | 88.46 | 89.60 | 4,564 |
+| ThreadAtlas | local/self-hosted | 100.00 | 96.43 | 93.33 | 84.21 | 77.44 | 87.18 | 87.00 | 4,351 |
 
 ### Published Reference Results
 
@@ -257,6 +276,7 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
 | Maasv | local/self-hosted | 76.38 +/- 32.50 | 8,526 | 65.09 +/- 38.85 | 8,656 |
 | cachly | local/self-hosted | 73.04 +/- 34.94 | 5,189 | - | - |
+| ThreadAtlas | local/self-hosted | 73.12 +/- 34.41 | 5,664 | - | - |
 
 The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 +/- figure is the per-question standard deviation printed by the harness. See
@@ -265,6 +285,10 @@ The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 The cachly 100K cell is a single contributor run (400 questions, 2026-11-13).
 cachly's four earlier BEAM 100K runs (70.28 to 72.52) are listed in
 [cachly BEAM 100K provenance](./cachly.md#beam-100k).
+
+The ThreadAtlas 100K cell is a single contributor run (400 questions,
+2026-11-16); the +/- figure is the per-question standard deviation printed by
+the harness. See [ThreadAtlas result provenance](./threadatlas.md#result-provenance).
 
 ### Published Reference Results
 
@@ -310,6 +334,7 @@ the gold answer; repeated runs are averaged.
 | MemOS | cloud | 33.80 | 57.82 | 32.57 | 35.66 | 36.59 | 39.40 | 39.23 | 40.58 | 1,908 |
 | LCM-X | local/self-hosted | 32.98 | 32.82 | 34.15 | 31.59 | 32.68 | 39.21 | 36.84 | 33.96 | 3,534 |
 | Maasv | local/self-hosted | 36.14 | 53.24 | 34.33 | 35.66 | 33.46 | 41.28 | 37.32 | 39.86 | 2,930 |
+| ThreadAtlas | local/self-hosted | 30.29 | 47.42 | 36.09 | 34.15 | 31.51 | 36.96 | 37.32 | 36.92 | 4,268 |
 
 ### Published Reference Results
 
@@ -351,6 +376,7 @@ multi-hop inference, and dynamic updates.
 | MemOS | cloud | 69.03 | 91.30 | 86.48 | 83.51 | 74.24 | 55.00 | 80.91 | 1,187 |
 | LCM-X | local/self-hosted | 73.06 | 89.73 | 85.96 | 82.31 | 78.79 | 62.78 | 81.68 | 1,985 |
 | Maasv | local/self-hosted | 71.72 | 91.91 | 87.52 | 82.17 | 79.80 | 62.78 | 82.29 | 2,241 |
+| ThreadAtlas | local/self-hosted | 75.34 | 92.63 | 88.43 | 86.06 | 78.28 | 55.56 | 83.82 | 3,052 |
 
 ### Published Reference Results
 
