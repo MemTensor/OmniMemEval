@@ -269,6 +269,7 @@ def search_query(client, query, metadata, frame, top_k=20):
         "mem9": generic_text_search,
         "lcmx": generic_text_search,
         "maasv": shared_conv_search,
+        "threadatlas": generic_text_search,
     }
     search_fn = _search_dispatch.get(frame)
     if search_fn is None:

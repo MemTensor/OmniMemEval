@@ -8,7 +8,7 @@ This track evaluates memory backend APIs through a shared benchmark pipeline
 and adapter layer. Select a backend with `--lib` to evaluate memory products,
 self-hosted frameworks, or custom adapters under the same benchmark flow.
 
-There are 17 adapter entries covering 16 memory solutions (Zep and Graphiti
+There are 18 adapter entries covering 17 memory solutions (Zep and Graphiti
 have separate entries). Supported benchmarks are LoCoMo, LongMemEval, BEAM,
 PersonaMem v2, and HaluMem.
 
@@ -272,6 +272,7 @@ Supported backend keys are:
 | `mem9` | mem9 |
 | `lcmx` | [LCM-X setup and run configuration](./lcmx.md) |
 | `maasv` | [Maasv setup and run configuration](./maasv.md) |
+| `threadatlas` | [ThreadAtlas setup and run configuration](./threadatlas.md) |
 
 Follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter)
 for integration, configuration, isolation, and testing, and the

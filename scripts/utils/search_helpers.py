@@ -199,6 +199,7 @@ DEFAULT_SEARCH_DISPATCH = {
     "mem9": generic_text_search,
     "lcmx": generic_text_search,
     "maasv": generic_text_search,
+    "threadatlas": generic_text_search,
 }
 
 

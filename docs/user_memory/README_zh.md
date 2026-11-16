@@ -9,7 +9,7 @@
 API。通过 `--lib` 选择后端，可以在同一套 benchmark 流程下评估记忆产品、
 自托管框架和自定义适配器。
 
-目前有 17 个适配器入口，覆盖 16 种记忆方案（Zep 和 Graphiti 使用不同入口），
+目前有 18 个适配器入口，覆盖 17 种记忆方案（Zep 和 Graphiti 使用不同入口），
 支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 五个 benchmark。
 
 首次运行建议按本文顺序阅读。已有环境可以直接查看
@@ -256,6 +256,7 @@ LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 `--streaming 1`，
 | `mem9` | mem9 |
 | `lcmx` | [LCM-X 安装与运行配置](./lcmx.md) |
 | `maasv` | [Maasv 安装与运行配置](./maasv.md) |
+| `threadatlas` | [ThreadAtlas 安装与运行配置](./threadatlas.md) |
 
 接入、配置、隔离与测试要求见
 [适配器清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)，
