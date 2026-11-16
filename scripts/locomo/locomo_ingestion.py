@@ -58,7 +58,9 @@ def ingest_session(client, session, frame, metadata):
         if group_id:
             for chat in session:
                 speaker = chat.get("speaker", "")
-                blip_caption = chat.get("blip_captions")
+                # LoCoMo's key is singular ("blip_caption"); the plural
+                # never matched, so captions were silently dropped here.
+                blip_caption = chat.get("blip_caption")
                 img_desc = (
                     f" (description of attached image: {blip_caption})"
                     if blip_caption else ""
@@ -121,8 +123,8 @@ def ingest_session(client, session, frame, metadata):
             (
                 f"{chat.get('speaker')}: {chat.get('text')}"
                 + (
-                    f" (description of attached image: {chat.get('blip_captions')})"
-                    if chat.get("blip_captions")
+                    f" (description of attached image: {chat.get('blip_caption')})"
+                    if chat.get("blip_caption")
                     else ""
                 )
             )
