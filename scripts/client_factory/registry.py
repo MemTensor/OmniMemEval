@@ -35,6 +35,7 @@ _LIB_CLIENT_REGISTRY = {
     "backboard":   ("backboard_client",   "BackboardClient"),
     "mem9":        ("mem9_client",        "Mem9Client"),
     "lcmx":        ("lcmx_client",        "LcmxClient"),
+    "maasv":       ("maasv_client",       "MaasvClient"),
 }
 
 SUPPORTED_LIBS = list(_LIB_CLIENT_REGISTRY.keys())
