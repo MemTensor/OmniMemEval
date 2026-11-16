@@ -68,6 +68,7 @@ the reproduced OmniMemEval scores.
 | MemOS | 88.83 | 89.20 | 66.87 | 56.75 | 40.58 | 80.91 |
 | LCM-X | 78.83 | 87.00 | 71.84 | 63.32 | 33.96 | 81.68 |
 | Maasv | 87.73 | 91.20 | 76.38 | 65.09 | 39.86 | 82.29 |
+| cachly | 90.71 | 89.60 | 73.04 | - | - | - |
 
 LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
 and prompts on **2026-10-18** with OmniMemEval harness commit
@@ -96,6 +97,20 @@ v0.4.48 service (one store per evaluation user, top-k 20) and the dated models f
 the direct OpenAI API. Maasv is not open source; the per-question records
 support artifact arithmetic and answer/judge replay.
 See [Maasv deployment and result provenance](./maasv.md#result-provenance).
+
+The cachly row is contributor-run: Heinrich Neb (cachly) ran the suites
+with OmniMemEval harness commit
+[`f7476c5502115542eca9971195bf8c5ca97b6256`](https://github.com/MemTensor/OmniMemEval/tree/f7476c5502115542eca9971195bf8c5ca97b6256)
+and the `cachly` adapter (self-hosted add/search service, top-k 20, answer
+and judge models as in the template through the OpenAI API): LoCoMo on
+**2026-10-30** with cachly 0.10.218, BEAM 100K on **2026-11-13** with the
+service of cachly 0.10.253, which returns its records oldest first, and
+LongMemEval on **2026-11-14** with that service after a time-zone fix. The
+LongMemEval cell replaces a first run of 2026-11-13/14 (89.80) that had the
+time-zone fault. Search used cachly's own cross-encoder
+reranker, whose model is not public. See
+[cachly result provenance](./cachly.md#result-provenance) for the evidence
+archives, earlier runs and limitations.
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -136,6 +151,7 @@ adversarial questions and covers 1,540 questions.
 | MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
 | LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
 | Maasv | local/self-hosted | 91.80 | 82.98 | 85.98 | 71.88 | 87.73 | 1,551 |
+| cachly | local/self-hosted | 95.01 | 87.94 | 86.29 | 76.04 | 90.71 | 6,673 |
 
 ### Published Reference Results
 
@@ -191,6 +207,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
 | LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
 | Maasv | local/self-hosted | 98.57 | 98.21 | 93.33 | 89.47 | 86.47 | 89.74 | 91.20 | 3,999 |
+| cachly | local/self-hosted | 100.00 | 98.21 | 86.67 | 87.97 | 83.46 | 88.46 | 89.60 | 4,564 |
 
 ### Published Reference Results
 
@@ -239,10 +256,15 @@ covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
 | MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
 | LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
 | Maasv | local/self-hosted | 76.38 +/- 32.50 | 8,526 | 65.09 +/- 38.85 | 8,656 |
+| cachly | local/self-hosted | 73.04 +/- 34.94 | 5,189 | - | - |
 
 The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
 +/- figure is the per-question standard deviation printed by the harness. See
 [LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22).
+
+The cachly 100K cell is a single contributor run (400 questions, 2026-11-13).
+cachly's four earlier BEAM 100K runs (70.28 to 72.52) are listed in
+[cachly BEAM 100K provenance](./cachly.md#beam-100k).
 
 ### Published Reference Results
 
