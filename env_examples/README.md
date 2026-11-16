@@ -58,6 +58,7 @@ and LLM settings.
 | `.env.backboard` | Backboard.io |
 | `.env.mem9` | mem9 |
 | `.env.lcmx` | [LCM-X setup and run configuration](../docs/user_memory/lcmx.md) |
+| `.env.maasv` | [Maasv setup and run configuration](../docs/user_memory/maasv.md) |
 | `.env.cachly` | [cachly setup and run configuration](../docs/user_memory/cachly.md) |
 | `.env.agent` | Agent Memory Evaluation / AgentBench |
 

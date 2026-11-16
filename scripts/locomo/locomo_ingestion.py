@@ -179,6 +179,11 @@ def ingest_session(client, session, frame, metadata):
         client.add(letta_msgs, speaker_a_user_id,
                     session_key=session_key, **time_kw)
 
+    # ── Maasv: one store per conversation, all turns once ────────────────
+    elif frame == "maasv":
+        inject_time(speaker_a_messages, dt, frame)
+        client.add(speaker_a_messages, speaker_a_user_id)
+
     # ── Cognee: single-dataset per conversation ──────────────────────────
     elif frame == "cognee":
         inject_time(speaker_a_messages, dt, frame)
