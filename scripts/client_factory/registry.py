@@ -37,6 +37,7 @@ _LIB_CLIENT_REGISTRY = {
     "lcmx":        ("lcmx_client",        "LcmxClient"),
     "maasv":       ("maasv_client",       "MaasvClient"),
     "threadatlas": ("threadatlas_client", "ThreadAtlasClient"),
+    "cachly":      ("cachly_client",      "CachlyClient"),
 }
 
 SUPPORTED_LIBS = list(_LIB_CLIENT_REGISTRY.keys())

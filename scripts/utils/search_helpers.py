@@ -200,6 +200,7 @@ DEFAULT_SEARCH_DISPATCH = {
     "lcmx": generic_text_search,
     "maasv": generic_text_search,
     "threadatlas": generic_text_search,
+    "cachly": generic_text_search,
 }
 
 
