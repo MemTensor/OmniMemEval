@@ -171,6 +171,7 @@ adversarial questions and covers 1,540 questions.
 | CPersona (pro) | 88.70 | 78.01 | 83.18 | 63.54 | 84.03 | 4,441 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | CPersona (lite) | 73.84 | 51.06 | 72.59 | 54.17 | 68.18 | 1,485 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | Hojo MemoryEngine | 92.98 | 81.91 | 85.36 | 72.92 | 88.12 | - | [Hojo evaluation details: 1,540-question non-adversarial subset](./hojo_reference_results.md#locomo) |
+| ThreadAtlas | 94.17 | 83.69 | 86.29 | 71.88 | 89.22 | 6,190 | [ThreadAtlas run records](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) (contributor-run, 1,540 non-adversarial questions; memory reading uses `gpt-5.6-luna`, not the shared baseline; [methodology](./threadatlas.md#version-deployment-and-settings-of-the-reported-runs)) |
 
 ## LongMemEval
 
@@ -221,6 +222,7 @@ questions; it is not the unweighted mean of the six category percentages.
 | CPersona (pro) | 97.14 | 94.64 | 96.67 | 86.47 | 85.71 | 88.46 | 89.60 | 4,262 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | CPersona (lite) | 95.71 | 83.93 | 90.00 | 80.45 | 74.44 | 82.05 | 82.20 | 993 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
 | Hojo MemoryEngine | 98.57 | 78.57 | 83.33 | 78.95 | 68.42 | 88.46 | 80.60 | - | [Hojo evaluation details](./hojo_reference_results.md#longmemeval-s) |
+| ThreadAtlas | 100.00 | 96.43 | 86.67 | 83.46 | 79.70 | 89.74 | 87.40 | 4,332 | [ThreadAtlas run records](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) (contributor-run, 500 questions; `gpt-5.6-luna` memory reading and prebuilt sessions from the original dataset; [methodology](./threadatlas.md#version-deployment-and-settings-of-the-reported-runs)) |
 
 ## BEAM
 

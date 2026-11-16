@@ -36,6 +36,7 @@ _LIB_CLIENT_REGISTRY = {
     "mem9":        ("mem9_client",        "Mem9Client"),
     "lcmx":        ("lcmx_client",        "LcmxClient"),
     "maasv":       ("maasv_client",       "MaasvClient"),
+    "threadatlas": ("threadatlas_client", "ThreadAtlasClient"),
     "cachly":      ("cachly_client",      "CachlyClient"),
 }
 

@@ -20,8 +20,8 @@ arrive grouped by user:
 
 ```bash
 cp env_examples/.env.maasv .env.maasv   # fill ANSWER_* and EVAL_* credentials
-./scripts/run_locomo_eval.sh --lib maasv --env .env.maasv --workers 1 --version <name>
-./scripts/run_beam_eval.sh --lib maasv --env .env.maasv --workers 1 --scale 100k --version <name>
+./scripts/run_locomo_eval.sh --lib maasv --env .env.maasv --workers 1 --version my_run
+./scripts/run_beam_eval.sh --lib maasv --env .env.maasv --workers 1 --scale 100k --version my_run
 ```
 
 `MAASV_BASE_URL` (default `http://127.0.0.1:8765`) points the adapter at the
