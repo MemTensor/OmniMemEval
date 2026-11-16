@@ -20,10 +20,16 @@ them with the source passages beside them. Each user has a store of their own.
 
 The answer and judge models are the harness's own. ThreadAtlas makes no model call at search time.
 
+The reported scores are listed under **Published Reference Results**, not the shared-baseline
+reproduced tables: memory reading used `gpt-5.6-luna`, and LongMemEval reused sessions prepared from
+the original dataset. This classification preserves the reported scores without implying that all
+memory-service settings match the baseline. The adapter is available independently of that classification.
+
 ## Setup
 
 ```bash
 git clone https://github.com/jhffmn82/threadatlas.git
+git -C threadatlas checkout a3337c5f
 python -m pip install -r requirements_user_memory.txt
 python -m pip install numpy fastembed tiktoken
 cp env_examples/.env.threadatlas .env.threadatlas
@@ -70,6 +76,9 @@ The runs, their records and their exact commands are in
 A bounded real-backend check before a full run: the first 20 LongMemEval users and the first LoCoMo
 conversation, through every step.
 
+**Warning:** the following commands shorten prepared dataset files in place. Run them only in a
+disposable checkout with copied (not linked) datasets, never against your only prepared copy.
+
 ```bash
 python - <<'PY'
 import json
@@ -81,8 +90,8 @@ PY
 ./scripts/run_locomo_eval.sh --lib threadatlas --env .env.threadatlas --version smoke --workers 10
 ```
 
-This shortens the prepared data files in place; run the prepare scripts again before a full run. The
-Kaggle notebook in the results repository does the same with `RUN = "smoke"`.
+Run the prepare scripts again before a full run in that checkout. The Kaggle notebook in the results
+repository does the same with `RUN = "smoke"`.
 
 These commands ran as written on 2026-11-07 on a Kaggle CPU notebook (Python 3.13.18, kit version 5,
 `gpt-5.6-luna`): every record finished, LongMemEval 20 of 20 and LoCoMo 141 of 152 judged right. The
