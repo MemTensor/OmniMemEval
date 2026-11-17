@@ -38,9 +38,17 @@ the link checks; include a minimal before/after example when explaining a bug.
   just for style.
 - Update both languages when changing guide sections, commands, options, or
   required setup. Translate explanations, not product names, paths, or flags.
-- Maintain numeric result tables only in each track's English `results.md`.
-  Chinese result pages provide translated context and links to the canonical
-  tables rather than copying scores. Keep methodology explanations aligned.
+- Maintain numeric result tables only in the English result pages. User Memory
+  uses `docs/user_memory/results.md` for the cross-benchmark summary and
+  `docs/user_memory/benchmark_results/` for detailed tables by benchmark.
+  Chinese result pages provide translated context and links to these tables
+  rather than copying scores. Keep methodology explanations aligned.
+- When updating a User Memory reproduced result, update the relevant benchmark
+  page and its summary cell together. Published reference results belong only
+  on the relevant benchmark page. Keep backend-specific configuration, evidence
+  and run history in the backend's existing documentation; retain a short note
+  alongside results when a limitation affects comparison. Preserve earlier run
+  evidence and explain which run the current row represents.
 - Keep parameter defaults, dataset/license details, and test commands in their
   existing reference files; link to them instead of duplicating full references.
   Distinguish bounded smoke checks, full evaluations, and destructive operations.
@@ -109,8 +117,9 @@ upstream dataset licenses listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES
 
 ### Published Reference Results
 
-Add rows to the relevant sections of
-[docs/user_memory/results.md](docs/user_memory/results.md), with a direct source
+Follow the benchmark links from the
+[results overview](docs/user_memory/results.md) and add rows to the relevant
+benchmark page's Published Reference Results section, with a direct source
 link. These are externally reported results and may use different data,
 models, prompts, or budgets. State such differences next to the result or in
 the linked methodology. For the LoCoMo four-category table, identify the

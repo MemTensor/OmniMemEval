@@ -4,8 +4,9 @@
 [中文版](./results_zh.md) · [Documentation index](../README.md) ·
 [Guide](./README.md)
 
-This page is the canonical source for numeric result tables; the Chinese page
-provides translated explanations and links to the same tables.
+This page provides the cross-benchmark summary and shared evaluation setup.
+The linked benchmark pages contain the detailed numeric tables; the Chinese
+page provides translated explanations and links to those tables.
 
 This document provides a public result snapshot for OmniMemEval's current
 benchmark pipelines. The reproduced scores were generated under one evaluation
@@ -50,7 +51,7 @@ the reproduced OmniMemEval scores.
 
 ## Result Summary
 
-| Backend | LoCoMo | LongMemEval | BEAM 100K | BEAM 10M | PersonaMem v2 | HaluMem |
+| Backend | [LoCoMo](./benchmark_results/locomo.md) | [LongMemEval](./benchmark_results/longmemeval.md) | [BEAM 100K](./benchmark_results/beam.md) | [BEAM 10M](./benchmark_results/beam.md) | [PersonaMem v2](./benchmark_results/personamem-v2.md) | [HaluMem](./benchmark_results/halumem.md) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Mem0 | 77.68 | 56.00 | 70.41 | 43.33 | 36.76 | 73.64 |
 | Zep / Graphiti | 63.83 | 79.80 | 68.70 | 56.11 | 32.34 | 81.71 |
@@ -71,63 +72,17 @@ the reproduced OmniMemEval scores.
 | cachly | 90.71 | 89.60 | 73.04 | - | - | - |
 | ThreadAtlas | 88.90 | 87.00 | 73.12 | - | 36.92 | 83.82 |
 
-LCM-X rows are contributor-run: the LCM-X maintainers ran the unchanged pipeline
-and prompts on **2026-10-18** with OmniMemEval harness commit
-[`162640314863db64b5af62138b5b81776516d1ff`](https://github.com/electricsheephq/OmniMemEval/tree/162640314863db64b5af62138b5b81776516d1ff),
-using the `lcmx` adapter (LCM-X v0.28.0-rc1, executable code identical to
-v0.28.0, local fastembed `BAAI/bge-small-en-v1.5` embeddings, top-k 20).
-The [public evidence release and manifest archive](https://github.com/electricsheephq/OmniMemEval/releases/tag/lcmx-v0.28.0-results-20261018)
-has archive SHA-256 `af4eebcb0909a86b5eb7969c4f167967b0d53b17559e7855e1cff58255b2682a`.
-The template requests direct OpenAI dated models; the runs requested those
-models via OpenRouter, whose answer receipts resolve to `openai/gpt-4.1-mini`.
-Those receipts establish the reported model identifier and token usage, but do
-not establish the exact dated revision or equivalence to a direct OpenAI run;
-they also do not establish that the model differed. See
-[LCM-X provenance and the pinned PersonaMem v2 snapshot](./lcmx.md#result-provenance)
-for the complete input pin and evidence limitations. The LCM-X BEAM 10M cell
-comes from a separate contributor run on **2026-10-22** with LCM-X v0.28.0; see
-[LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22) for its harness commits,
-evidence archive and limitations.
+### Contributor-run notes
 
-The Maasv rows (LoCoMo, LongMemEval, BEAM 100K, BEAM 10M, HaluMem and
-PersonaMem v2) are contributor-run: the Maasv team ran the unchanged pipeline
-and prompts on **2026-10-31** (LoCoMo and BEAM 100K) and **2026-11-01**
-(HaluMem, PersonaMem v2, LongMemEval and BEAM 10M) with OmniMemEval harness
-commit `7c79d46` plus the `maasv` adapter commit, using a self-hosted Maasv
-v0.4.48 service (one store per evaluation user, top-k 20) and the dated models from
-the direct OpenAI API. Maasv is not open source; the per-question records
-support artifact arithmetic and answer/judge replay.
-See [Maasv deployment and result provenance](./maasv.md#result-provenance).
+These rows were run by contributors. Versions, configurations, evidence and
+run history are maintained in the linked backend documentation.
 
-The cachly row is contributor-run: Heinrich Neb (cachly) ran the suites
-with OmniMemEval harness commit
-[`f7476c5502115542eca9971195bf8c5ca97b6256`](https://github.com/MemTensor/OmniMemEval/tree/f7476c5502115542eca9971195bf8c5ca97b6256)
-and the `cachly` adapter (self-hosted add/search service, top-k 20, answer
-and judge models as in the template through the OpenAI API): LoCoMo on
-**2026-10-30** with cachly 0.10.218, BEAM 100K on **2026-11-13** with the
-service of cachly 0.10.253, which returns its records oldest first, and
-LongMemEval on **2026-11-14** with that service after a time-zone fix. The
-LongMemEval cell replaces a first run of 2026-11-13/14 (89.80) that had the
-time-zone fault. Search used cachly's own cross-encoder
-reranker, whose model is not public. See
-[cachly result provenance](./cachly.md#result-provenance) for the evidence
-archives, earlier runs and limitations.
-
-The ThreadAtlas row is contributor-run: Justin Hoffman (ThreadAtlas) ran the
-unchanged pipeline and prompts on **2026-11-16** with OmniMemEval harness
-commit
-[`5e8cdc115b2eff391e72192dbfe3786ebadc9005`](https://github.com/MemTensor/OmniMemEval/tree/5e8cdc115b2eff391e72192dbfe3786ebadc9005)
-and its `threadatlas` adapter (in-process `threadatlas_memory` at
-[`015143c`](https://github.com/jhffmn82/threadatlas/tree/015143cdb995497022b88878c8ebc8c5223d1eee/threadatlas_memory),
-one store per evaluation user, top-k 20), using the dated models of the
-template from the direct OpenAI API. Memory reading used
-`gpt-4.1-mini-2025-04-14`, and every session was read during the run. The
-LoCoMo cell is the last of three full runs in this setting (88.44, 89.68 and
-88.90); each other cell is a single full run. See
-[ThreadAtlas result provenance](./threadatlas.md#result-provenance) for the
-run records, the earlier runs and the settings. The ThreadAtlas rows under
-Published Reference Results are separate runs of 2026-11-07 with
-`gpt-5.6-luna` memory reading.
+| Backend / run author | Notes and provenance |
+| --- | --- |
+| [LCM-X](./lcmx.md#result-provenance) / LCM-X maintainers | OpenRouter receipts do not confirm the exact dated answer-model revision or equivalence to direct OpenAI calls; they do not establish a different model either. [BEAM 10M](./lcmx.md#beam-10m-run-2026-10-22) is a separate run. |
+| [Maasv](./maasv.md#result-provenance) / Maasv team | Direct OpenAI dated models; self-hosted, closed-source backend. Public records support artifact arithmetic and answer/judge replay. |
+| [cachly](./cachly.md#result-provenance) / Heinrich Neb | Direct OpenAI dated models; private reranker and disclosed benchmark-driven tuning. LongMemEval replaces an earlier run affected by a time-zone fault. |
+| [ThreadAtlas](./threadatlas.md#result-provenance) / Justin Hoffman | Baseline memory reading uses the dated model, with every session read during the run. LoCoMo uses the latest of three full runs, not their maximum. Earlier reference runs used different memory-reading settings. |
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation
@@ -137,253 +92,48 @@ mixed into the reproduced result tables.
 
 ## LoCoMo
 
-LoCoMo evaluates long-conversation memory with multi-hop, temporal, and
-open-domain question answering. The reproduced evaluation excludes category 5
-adversarial questions and covers 1,540 questions.
+<a id="reproduced-results"></a>
+<a id="published-reference-results"></a>
 
-| Category | Count | Description |
-| --- | ---: | --- |
-| Single-Hop | 841 | Direct fact extraction from one evidence source |
-| Multi-Hop | 282 | Reasoning over multiple conversation turns |
-| Temporal | 321 | Time-aware retrieval and temporal reasoning |
-| Open-Domain | 96 | Open-ended reasoning over multiple pieces of evidence |
-
-### Reproduced Results
-
-| Backend | Deployment | Single-Hop | Multi-Hop | Temporal | Open-Domain | Overall | Context Tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mem0 | cloud | 81.09 | 76.12 | 77.15 | 54.17 | 77.68 | 17,395 |
-| Zep | cloud | 65.36 | 68.79 | 55.56 | 63.54 | 63.83 | 1,862 |
-| Supermemory | cloud | 75.39 | 77.07 | 67.60 | 66.67 | 73.53 | 15,238 |
-| Viking | cloud | 78.04 | 73.29 | 48.81 | 50.00 | 69.33 | 5,964 |
-| Cognee | cloud | 87.99 | 78.84 | 81.83 | 63.19 | 83.48 | 32,532 |
-| Letta | cloud | 87.99 | 76.24 | 53.48 | 63.54 | 77.12 | 14,188 |
-| Hindsight | cloud | 88.98 | 78.84 | 73.52 | 58.33 | 81.99 | 24,683 |
-| Memori | cloud | 47.32 | 44.09 | 22.53 | 43.75 | 41.34 | 8,139 |
-| EverOS | cloud | 86.80 | 77.78 | 84.11 | 57.29 | 82.75 | 8,559 |
-| MemMachine | local/self-hosted | 83.47 | 53.19 | 71.96 | 57.29 | 73.90 | 2,577 |
-| mem9 | cloud | 79.27 | 62.88 | 73.62 | 55.90 | 73.64 | 1,597 |
-| MemoryLake | cloud | 70.87 | 75.30 | 79.75 | 54.17 | 72.49 | 5,202 |
-| Backboard.io | cloud | 25.09 | 22.34 | 13.40 | 29.17 | 22.40 | 1,198 |
-| MemOS | cloud | 92.51 | 88.65 | 85.05 | 69.79 | 88.83 | 5,400 |
-| LCM-X | local/self-hosted | 84.30 | 66.31 | 79.75 | 64.58 | 78.83 | 1,659 |
-| Maasv | local/self-hosted | 91.80 | 82.98 | 85.98 | 71.88 | 87.73 | 1,551 |
-| cachly | local/self-hosted | 95.01 | 87.94 | 86.29 | 76.04 | 90.71 | 6,673 |
-| ThreadAtlas | local/self-hosted | 93.22 | 85.11 | 86.29 | 70.83 | 88.90 | 6,213 |
-
-### Published Reference Results
-
-| Backend | Single-Hop | Multi-Hop | Temporal | Open-Domain | Overall | Context Tokens | Source |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Mem0 | 94.6 | 95.4 | 92.5 | 82.3 | 92.5 | 6,956 | [mem0.ai research](https://mem0.ai/research) |
-| Zep | 96.4 | 94.0 | 95.6 | 79.2 | 94.7 | 5,760 | [getzep research](https://www.getzep.com/research/) |
-| Supermemory | - | - | - | - | 77.1 | - | [Supermemory issue 795](https://github.com/supermemoryai/supermemory/issues/795) |
-| Letta | - | - | - | - | 74.0 | - | [Letta benchmark blog](https://www.letta.com/blog/benchmarking-ai-agent-memory) |
-| Hindsight | - | - | - | - | 92.0 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
-| Memori | 87.87 | 72.70 | 80.37 | 63.54 | 81.95 | 1,294 | [Memori benchmark](https://memorilabs.ai/docs/memori-cloud/benchmark/results/) |
-| EverOS | 96.67 | 91.84 | 89.72 | 76.04 | 93.05 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
-| mem9 | 89.71 | 83.16 | 89.25 | 64.58 | 86.85 | - | [mem9](https://mem9.ai/) |
-| MemoryLake | 96.79 | 91.84 | 91.28 | 85.42 | 94.03 | - | [MemoryLake benchmark](https://www.memorylake.ai/products/compare/benchmarks) |
-| Backboard.io | 89.36 | 75.00 | 91.90 | 91.20 | 90.00 | - | [Backboard LoCoMo repo](https://github.com/Backboard-io/Backboard-Locomo-Benchmark) |
-| past.dev | 95.01 | 93.26 | 93.46 | 75.00 | 93.12 | - | [past.dev benchmarks](https://past.dev/benchmarks) (community-corrected answer keys) |
-| CPersona (pro) | 88.70 | 78.01 | 83.18 | 63.54 | 84.03 | 4,441 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
-| CPersona (lite) | 73.84 | 51.06 | 72.59 | 54.17 | 68.18 | 1,485 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; the 1,540-question non-adversarial subset, categories 1–4; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
-| Hojo MemoryEngine | 92.98 | 81.91 | 85.36 | 72.92 | 88.12 | - | [Hojo evaluation details: 1,540-question non-adversarial subset](./hojo_reference_results.md#locomo) |
-| ThreadAtlas | 94.17 | 83.69 | 86.29 | 71.88 | 89.22 | 6,190 | [ThreadAtlas run records](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) (contributor-run, 1,540 non-adversarial questions; memory reading uses `gpt-5.6-luna`, not the shared baseline; [methodology](./threadatlas.md#version-deployment-and-settings-of-the-reported-runs)) |
+[Scope, metrics and detailed results](./benchmark_results/locomo.md) ·
+[Reproduced Results](./benchmark_results/locomo.md#reproduced-results) ·
+[Published Reference Results](./benchmark_results/locomo.md#published-reference-results)
 
 ## LongMemEval
 
-LongMemEval evaluates long-term interactive memory across sessions. The
-OmniMemEval public pipeline uses the cleaned LongMemEval-S data by default.
-The `Overall` score is the question-count-weighted mean across all 500
-questions; it is not the unweighted mean of the six category percentages.
+<a id="reproduced-results-1"></a>
+<a id="published-reference-results-1"></a>
 
-| Category | Count | Description |
-| --- | ---: | --- |
-| single-session-user | 70 | User fact extraction from one historical session |
-| single-session-assistant | 56 | Assistant-provided information extraction from one historical session |
-| single-session-preference | 30 | User preference inference from one historical session |
-| temporal-reasoning | 133 | Time-aware reasoning over session timestamps |
-| multi-session | 133 | Reasoning over information from multiple sessions |
-| knowledge-update | 78 | Selecting the latest valid answer after information changes |
-
-### Reproduced Results
-
-| Backend | Deployment | SS-User | SS-Asst | SS-Pref | Temp. Reas | Multi-S | Know. Upd | Overall | Context Tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mem0 | cloud | 8.57 | 85.71 | 96.67 | 51.13 | 50.38 | 79.49 | 56.00 | 856 |
-| graphiti-zep | local/self-hosted | 94.29 | 100.00 | 86.67 | 74.44 | 67.67 | 79.49 | 79.80 | 117,106 |
-| Supermemory | cloud | 87.14 | 41.07 | 65.56 | 68.42 | 60.15 | 71.37 | 66.07 | 6,635 |
-| Viking | cloud | 75.24 | 46.43 | 96.67 | 55.39 | 57.89 | 60.26 | 61.07 | 2,291 |
-| Cognee | local/self-hosted | 67.14 | 60.71 | 83.33 | 47.37 | 37.59 | 51.28 | 51.80 | 10,305 |
-| Letta | cloud | 95.71 | 98.21 | 76.67 | 69.42 | 65.41 | 82.05 | 77.67 | 49,431 |
-| Hindsight | local/self-hosted | 82.86 | 14.29 | 96.67 | 82.71 | 71.43 | 78.21 | 72.20 | 29,755 |
-| Memori | cloud | 84.14 | 1.79 | 23.33 | 3.76 | 18.80 | 6.41 | 20.80 | 2,779 |
-| EverOS | local/self-hosted | 91.43 | 89.29 | 96.67 | 81.95 | 66.17 | 79.49 | 80.40 | 12,379 |
-| MemMachine | local/self-hosted | 75.71 | 96.43 | 83.33 | 55.64 | 39.85 | 75.64 | 63.60 | 2,803 |
-| mem9 | cloud | 95.71 | 94.64 | 56.67 | 77.44 | 62.41 | 85.90 | 78.00 | 3,805 |
-| MemOS | cloud | 100.00 | 100.00 | 100.00 | 89.47 | 78.95 | 84.62 | 89.20 | 4,151 |
-| LCM-X | local/self-hosted | 95.71 | 94.64 | 96.67 | 85.71 | 75.19 | 92.31 | 87.00 | 5,164 |
-| Maasv | local/self-hosted | 98.57 | 98.21 | 93.33 | 89.47 | 86.47 | 89.74 | 91.20 | 3,999 |
-| cachly | local/self-hosted | 100.00 | 98.21 | 86.67 | 87.97 | 83.46 | 88.46 | 89.60 | 4,564 |
-| ThreadAtlas | local/self-hosted | 100.00 | 96.43 | 93.33 | 84.21 | 77.44 | 87.18 | 87.00 | 4,351 |
-
-### Published Reference Results
-
-| Backend | SS-User | SS-Asst | SS-Pref | Temp. Reas | Multi-S | Know. Upd | Overall | Context Tokens | Source |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Mem0 | 98.6 | 98.2 | 96.7 | 93.6 | 88.0 | 97.0 | 94.4 | 6,787 | [mem0.ai research](https://mem0.ai/research) |
-| Zep | 94.3 | 96.4 | 90.0 | 90.2 | 83.5 | 93.6 | 90.2 | 4,408 | [getzep research](https://www.getzep.com/research/) |
-| Supermemory | 97.0 | 100.0 | 90.0 | 91.0 | 93.0 | 99.0 | 95.0 | - | [Supermemory LongMemBench](https://supermemory.ai/research/longmembench/) |
-| Hindsight | - | - | - | - | - | - | 94.6 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
-| EverOS | 97.14 | 85.71 | 93.33 | 77.44 | 73.68 | 89.74 | 83.0 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
-| Backboard.io | 97.1 | 98.2 | 90.0 | 91.7 | 91.7 | 93.6 | 93.4 | - | [Backboard LongMemEval repo](https://github.com/Backboard-io/Backboard-longmemEval-results) |
-| CPersona (pro) | 97.14 | 94.64 | 96.67 | 86.47 | 85.71 | 88.46 | 89.60 | 4,262 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
-| CPersona (lite) | 95.71 | 83.93 | 90.00 | 80.45 | 74.44 | 82.05 | 82.20 | 993 | [CPersona run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) (this harness at `0b1ea8d`; answers `gpt-4.1-mini-2025-04-14`, judge `gpt-4o-mini`) |
-| Hojo MemoryEngine | 98.57 | 78.57 | 83.33 | 78.95 | 68.42 | 88.46 | 80.60 | - | [Hojo evaluation details](./hojo_reference_results.md#longmemeval-s) |
-| ThreadAtlas | 100.00 | 96.43 | 86.67 | 83.46 | 79.70 | 89.74 | 87.40 | 4,332 | [ThreadAtlas run records](https://github.com/jhffmn82/threadatlas/tree/dff7388606c3979c410195e28ce0b59cf4faa97a/omnimemeval) (contributor-run, 500 questions; `gpt-5.6-luna` memory reading and prebuilt sessions from the original dataset; [methodology](./threadatlas.md#version-deployment-and-settings-of-the-reported-runs)) |
+[Scope, metrics and detailed results](./benchmark_results/longmemeval.md) ·
+[Reproduced Results](./benchmark_results/longmemeval.md#reproduced-results) ·
+[Published Reference Results](./benchmark_results/longmemeval.md#published-reference-results)
 
 ## BEAM
 
-BEAM evaluates long-term memory at different context scales. The public
-OmniMemEval runner supports 100K, 500K, 1M, and 10M scales; the reproduced
-snapshot below reports the 100K and 10M scales from the current result set.
+<a id="reproduced-results-2"></a>
+<a id="published-reference-results-2"></a>
 
-BEAM uses nugget score rather than binary accuracy. Nugget score measures how
-well a generated answer covers the atomic reference facts, with 1.0 for fully
-covered, 0.5 for partially covered, and 0.0 for incorrect or missing evidence.
-
-| Scale | Questions | Description |
-| --- | ---: | --- |
-| 100K | 400 | Baseline long-memory scale, approximately 128K tokens per conversation |
-| 10M | 200 | Extreme long-memory scale, approximately 10M tokens per conversation |
-
-### Reproduced Results
-
-| Backend | Deployment | 100K Nugget Score | 100K Context Tokens | 10M Nugget Score | 10M Context Tokens |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Mem0 | cloud | 70.41 +/- 36.36 | 1,055 | 43.33 +/- 41.99 | 1,086 |
-| graphiti-zep | local/self-hosted | 68.70 +/- 36.46 | 8,667 | 56.11 +/- 40.70 | 176,211 |
-| Supermemory | cloud | 65.98 +/- 37.10 | 6,294 | 52.49 +/- 40.44 | 6,574 |
-| Viking | cloud | 70.76 +/- 35.23 | 2,023 | 58.14 +/- 39.57 | 2,080 |
-| Cognee | local/self-hosted | 59.30 +/- 39.44 | 33,065 | 56.02 +/- 41.33 | 40,914 |
-| Letta | cloud | 69.22 +/- 36.76 | 82,013 | 52.30 +/- 41.06 | 49,786 |
-| Hindsight | local/self-hosted | 70.22 +/- 36.44 | 24,085 | 59.75 +/- 39.63 | 23,815 |
-| EverOS | local/self-hosted | 58.64 +/- 39.36 | 7,393 | 47.73 +/- 41.66 | 11,657 |
-| MemMachine | local/self-hosted | 64.80 +/- 37.62 | 5,413 | 51.90 +/- 40.46 | 5,448 |
-| mem9 | cloud | 65.75 +/- 38.92 | 5,372 | 57.30 +/- 39.03 | 4,947 |
-| MemOS | cloud | 66.87 +/- 37.37 | 1,636 | 56.75 +/- 39.17 | 1,558 |
-| LCM-X | local/self-hosted | 71.84 +/- 34.86 | 11,926 | 63.32 +/- 40.02 | 9,625 |
-| Maasv | local/self-hosted | 76.38 +/- 32.50 | 8,526 | 65.09 +/- 38.85 | 8,656 |
-| cachly | local/self-hosted | 73.04 +/- 34.94 | 5,189 | - | - |
-| ThreadAtlas | local/self-hosted | 73.12 +/- 34.41 | 5,664 | - | - |
-
-The LCM-X 10M cell is a single contributor run (200 questions, 2026-10-22); the
-+/- figure is the per-question standard deviation printed by the harness. See
-[LCM-X BEAM 10M run](./lcmx.md#beam-10m-run-2026-10-22).
-
-The cachly 100K cell is a single contributor run (400 questions, 2026-11-13).
-cachly's four earlier BEAM 100K runs (70.28 to 72.52) are listed in
-[cachly BEAM 100K provenance](./cachly.md#beam-100k).
-
-The ThreadAtlas 100K cell is a single contributor run (400 questions,
-2026-11-16); the +/- figure is the per-question standard deviation printed by
-the harness. See [ThreadAtlas result provenance](./threadatlas.md#result-provenance).
-
-### Published Reference Results
-
-| Backend | 100K Nugget Score | 100K Context Tokens | 10M Nugget Score | 10M Context Tokens | Source |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Mem0 | 64.1 | 6,719 | 48.6 | 6,914 | [mem0.ai research](https://mem0.ai/research) |
-| Hindsight | 75.0 | - | 64.1 | - | [Hindsight Benchmarks](https://benchmarks.hindsight.vectorize.io/) |
-| past.dev | 92.08 | - | 85.03 | - | [past.dev BEAM leaderboard](https://past.dev/benchmarks/beam) |
-| OpenWay.ai | 75.07 | 5,366 | - | - | [OpenWay.ai BEAM-100K runs](https://github.com/andrei2084k-prog/openway.ai-beam-100k) (OmniMemEval harness at `0b1ea8d`; latest run, on a newer version of OpenWay.ai) |
-| Hojo MemoryEngine | 69.58 | - | - | - | [100K evaluation details](./hojo_reference_results.md#beam-100k); [10M status](./hojo_reference_results.md#beam-10m) |
+[Scope, metrics and detailed results](./benchmark_results/beam.md) ·
+[Reproduced Results](./benchmark_results/beam.md#reproduced-results) ·
+[Published Reference Results](./benchmark_results/beam.md#published-reference-results)
 
 ## PersonaMem v2
 
-PersonaMem v2 evaluates personalized memory and preference-aware multiple-choice
-question answering. Accuracy is computed by matching the selected option against
-the gold answer; repeated runs are averaged.
+<a id="reproduced-results-3"></a>
+<a id="published-reference-results-3"></a>
 
-| Preference Type | Count | Description |
-| --- | ---: | --- |
-| ask_to_forget | 1,048 | Preferences that the user later asks the system to forget |
-| neutral_preferences | 858 | Neutral personal preferences |
-| anti_stereotypical_pref | 855 | Preferences that go against stereotypes |
-| therapy_background | 627 | Therapy or mental-health background preferences |
-| health_and_medical_conditions | 568 | Health and medical-condition preferences |
-| stereotypical_pref | 533 | Stereotypical preference cases |
-| sensitive_info | 511 | Sensitive personal information cases |
-
-### Reproduced Results
-
-| Backend | Deployment | Anti-Stereotypical | Ask-to-Forget | Health/Medical | Neutral | Sensitive | Stereotypical | Therapy | Overall | Context Tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mem0 | cloud | 41.40 | 24.33 | 38.38 | 39.28 | 30.72 | 45.78 | 43.54 | 36.76 | 1,388 |
-| graphiti-zep | local/self-hosted | 28.19 | 29.77 | 28.70 | 31.93 | 30.92 | 37.90 | 42.58 | 32.34 | 3,645 |
-| Supermemory | cloud | 42.34 | 31.97 | 42.96 | 42.42 | 30.72 | 49.72 | 40.67 | 39.64 | 4,473 |
-| Viking | cloud | 31.58 | 25.38 | 29.23 | 29.49 | 33.66 | 36.59 | 34.77 | 30.80 | 1,688 |
-| Cognee | local/self-hosted | 18.83 | 41.13 | 16.90 | 18.65 | 32.88 | 16.51 | 34.93 | 26.46 | 10,189 |
-| Letta | cloud | 31.46 | 38.93 | 32.39 | 34.85 | 27.40 | 39.40 | 39.23 | 35.12 | 30,903 |
-| Hindsight | local/self-hosted | 33.57 | 40.65 | 36.62 | 38.11 | 36.01 | 42.78 | 38.12 | 37.98 | 15,926 |
-| Memori | cloud | 30.18 | 27.48 | 32.39 | 37.53 | 33.46 | 36.77 | 38.12 | 33.16 | 3,109 |
-| EverOS | cloud | 33.57 | 31.49 | 34.68 | 37.76 | 33.27 | 44.47 | 40.19 | 35.94 | 6,572 |
-| MemMachine | local/self-hosted | 28.19 | 45.04 | 32.22 | 28.44 | 29.75 | 32.46 | 38.60 | 34.14 | 1,988 |
-| mem9 | cloud | 32.28 | 22.90 | 32.57 | 34.50 | 25.05 | 38.27 | 33.33 | 30.76 | 2,045 |
-| MemOS | cloud | 33.80 | 57.82 | 32.57 | 35.66 | 36.59 | 39.40 | 39.23 | 40.58 | 1,908 |
-| LCM-X | local/self-hosted | 32.98 | 32.82 | 34.15 | 31.59 | 32.68 | 39.21 | 36.84 | 33.96 | 3,534 |
-| Maasv | local/self-hosted | 36.14 | 53.24 | 34.33 | 35.66 | 33.46 | 41.28 | 37.32 | 39.86 | 2,930 |
-| ThreadAtlas | local/self-hosted | 30.29 | 47.42 | 36.09 | 34.15 | 31.51 | 36.96 | 37.32 | 36.92 | 4,268 |
-
-### Published Reference Results
-
-| Backend | Overall | Context Tokens | Source |
-| --- | ---: | ---: | --- |
-| EverOS | 53.25 | - | [EverMemOS paper](https://arxiv.org/abs/2601.02163) |
-| Hojo MemoryEngine | 35.14 | - | [Hojo evaluation details](./hojo_reference_results.md#personamem-v2) |
+[Scope, metrics and detailed results](./benchmark_results/personamem-v2.md) ·
+[Reproduced Results](./benchmark_results/personamem-v2.md#reproduced-results) ·
+[Published Reference Results](./benchmark_results/personamem-v2.md#published-reference-results)
 
 ## HaluMem
 
-HaluMem evaluates hallucination robustness in memory systems, including fact
-recall, boundary detection, conflicting memory handling, generalization,
-multi-hop inference, and dynamic updates.
+<a id="reproduced-results-4"></a>
+<a id="published-reference-results-4"></a>
 
-| Question Type | Count | Description |
-| --- | ---: | --- |
-| Basic Fact Recall | 746 | Extracting concrete facts from memory |
-| Memory Boundary | 828 | Recognizing questions outside known memory rather than fabricating answers |
-| Memory Conflict | 769 | Resolving conflicting memory records |
-| Generalization & Application | 746 | Reasoning and applying known memories |
-| Multi-hop Inference | 198 | Connecting multiple memories for inference |
-| Dynamic Update | 180 | Answering with the latest valid state after memory updates |
-
-### Reproduced Results
-
-| Backend | Deployment | Basic Fact | Boundary | Conflict | Generalization | Multi-Hop | Dynamic Update | Overall | Context Tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Mem0 | cloud | 56.30 | 91.91 | 74.77 | 78.42 | 68.69 | 42.22 | 73.64 | 803 |
-| graphiti-zep | local/self-hosted | 69.44 | 89.13 | 88.43 | 84.05 | 79.80 | 62.22 | 81.71 | 5,404 |
-| Supermemory | cloud | 25.20 | 97.46 | 44.86 | 49.87 | 41.92 | 16.11 | 52.61 | 1,672 |
-| Viking | cloud | 57.91 | 92.51 | 80.49 | 84.72 | 74.75 | 47.78 | 77.39 | 3,196 |
-| Cognee | local/self-hosted | 52.41 | 92.51 | 74.64 | 78.28 | 69.70 | 35.56 | 72.60 | 8,981 |
-| Letta | cloud | 85.92 | 83.45 | 85.70 | 90.62 | 84.34 | 71.11 | 85.43 | 45,349 |
-| Hindsight | local/self-hosted | 78.42 | 87.45 | 86.61 | 86.19 | 81.31 | 73.89 | 83.99 | 14,798 |
-| Memori | cloud | 20.91 | 93.24 | 41.35 | 53.35 | 24.24 | 11.11 | 49.38 | 3,275 |
-| EverOS | local/self-hosted | 87.80 | 88.89 | 89.99 | 90.48 | 86.36 | 80.56 | 88.66 | 10,824 |
-| MemMachine | local/self-hosted | 20.38 | 97.42 | 34.72 | 45.31 | 26.77 | 11.11 | 47.02 | 1,093 |
-| mem9 | cloud | 54.56 | 94.20 | 68.79 | 80.16 | 70.71 | 38.89 | 72.80 | 893 |
-| MemOS | cloud | 69.03 | 91.30 | 86.48 | 83.51 | 74.24 | 55.00 | 80.91 | 1,187 |
-| LCM-X | local/self-hosted | 73.06 | 89.73 | 85.96 | 82.31 | 78.79 | 62.78 | 81.68 | 1,985 |
-| Maasv | local/self-hosted | 71.72 | 91.91 | 87.52 | 82.17 | 79.80 | 62.78 | 82.29 | 2,241 |
-| ThreadAtlas | local/self-hosted | 75.34 | 92.63 | 88.43 | 86.06 | 78.28 | 55.56 | 83.82 | 3,052 |
-
-### Published Reference Results
-
-| Backend | Overall | Context Tokens | Source |
-| --- | ---: | ---: | --- |
-| EverOS | 93.04 | - | [EverMind](https://evermind.ai/) |
-| Hojo MemoryEngine | 77.33 | - | [Hojo evaluation details](./hojo_reference_results.md#halumem-medium) |
+[Scope, metrics and detailed results](./benchmark_results/halumem.md) ·
+[Reproduced Results](./benchmark_results/halumem.md#reproduced-results) ·
+[Published Reference Results](./benchmark_results/halumem.md#published-reference-results)
 
 ## Reproduction Notes
 

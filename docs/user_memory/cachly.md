@@ -136,7 +136,8 @@ run, which replaces a first run with a time-zone fault (see below).
 
 Ingestion and search ran from 2026-10-29 22:51 to 2026-10-30
 04:48 UTC, answer and judge stages from 04:48 to 05:04 UTC, with OmniMemEval
-harness commit `f7476c5502115542eca9971195bf8c5ca97b6256` and
+harness commit
+[`f7476c5502115542eca9971195bf8c5ca97b6256`](https://github.com/MemTensor/OmniMemEval/tree/f7476c5502115542eca9971195bf8c5ca97b6256) and
 `@cachly-dev/mcp-server` 0.10.218 (cachly-mcp commit
 `5ecd1a67ca54391f552841a7c4b0821d788917fe`).
 
