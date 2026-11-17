@@ -20,7 +20,7 @@ them with the source passages beside them. Each user has a store of their own.
 
 The answer and judge models are the harness's own. ThreadAtlas makes no model call at search time.
 
-ThreadAtlas has two sets of scores in [results.md](./results.md).
+ThreadAtlas has two sets of scores linked from the [results overview](./results.md).
 
 - **Reproduced Results** hold the baseline runs of 2026-11-16. Every session is read during the run by
   `add()` with `gpt-4.1-mini-2025-04-14`, nothing is prepared beforehand, and a user's store holds that
@@ -74,7 +74,7 @@ the judge, with every other setting at the harness default.
 
 ## Result provenance
 
-The ThreadAtlas rows under **Reproduced Results** in [results.md](./results.md) were produced by Justin Hoffman
+The ThreadAtlas rows under **Reproduced Results** linked from the [results overview](./results.md) were produced by Justin Hoffman
 (ThreadAtlas) on 2026-11-16. Each cell is one full run of the unchanged pipeline and prompts.
 
 | | |

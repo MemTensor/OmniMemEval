@@ -1,10 +1,11 @@
 # User Memory Evaluation（用户记忆评测）结果
 
-[English / 完整结果表](./results.md) · [文档索引](../README_zh.md) ·
+[English / 结果总览](./results.md) · [文档索引](../README_zh.md) ·
 [运行指南](./README_zh.md)
 
-本文提供中文阅读说明与结果表入口。数值统一维护在
-[英文结果页](./results.md)，避免中英文表格更新不同步。
+本文提供中文阅读说明与结果表入口。汇总分数维护在
+[英文结果总览](./results.md)，分类成绩和公开参考结果按 benchmark 分页维护，
+避免中英文表格更新不同步。
 
 ## 评测设置与可比性
 
@@ -24,16 +25,16 @@
 
 | Benchmark | 主要指标 | 结果与范围说明 |
 |---|---|---|
-| LoCoMo | LLM 评分准确率 | [非对抗性问题子集与分类结果](./results.md#locomo) |
-| LongMemEval | LLM 评分准确率 | [LongMemEval-S 与按题数加权的总体分数](./results.md#longmemeval) |
-| BEAM | Nugget 分数 | [100K / 10M 的结果、范围与评分定义](./results.md#beam) |
-| PersonaMem v2 | 选项匹配准确率 | [偏好类型与多次运行汇总](./results.md#personamem-v2) |
-| HaluMem | LLM 评分准确率 | [问题类型与分类结果](./results.md#halumem) |
+| LoCoMo | LLM 评分准确率 | [非对抗性问题子集与分类结果](./benchmark_results/locomo.md) |
+| LongMemEval | LLM 评分准确率 | [LongMemEval-S 与按题数加权的总体分数](./benchmark_results/longmemeval.md) |
+| BEAM | Nugget 分数 | [100K / 10M 的结果、范围与评分定义](./benchmark_results/beam.md) |
+| PersonaMem v2 | 选项匹配准确率 | [偏好类型与多次运行汇总](./benchmark_results/personamem-v2.md) |
+| HaluMem | LLM 评分准确率 | [问题类型与分类结果](./benchmark_results/halumem.md) |
 
 `Context Tokens` 是每道问题发送给答案模型的平均输入 token 数，
 包含答案提示词和检索上下文，不是单纯的后端返回文本长度。
 在准确率可比时，较低数值表示较高的 token 效率。
-具体定义和各 benchmark 的汇总方式以英文结果页为准。
+具体定义见英文结果总览，各 benchmark 的范围和汇总方式以对应详细结果页为准。
 
 ## 复现与提交结果
 
