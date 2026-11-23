@@ -274,6 +274,7 @@ Supported backend keys are:
 | `maasv` | [Maasv setup and run configuration](./maasv.md) |
 | `threadatlas` | [ThreadAtlas setup and run configuration](./threadatlas.md) |
 | `cachly` | [cachly setup and run configuration](./cachly.md) |
+| `cpersona` | [CPersona setup and run configuration](./cpersona.md) |
 
 Follow the [adapter checklist](../../CONTRIBUTING.md#adding-a-user-memory-adapter)
 for integration, configuration, isolation, and testing, and the

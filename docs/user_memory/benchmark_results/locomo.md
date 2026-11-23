@@ -17,7 +17,8 @@ adversarial questions and covers 1,540 questions.
 ## Reproduced Results
 
 [LCM-X](../lcmx.md#result-provenance), [Maasv](../maasv.md#result-provenance),
-[cachly](../cachly.md#result-provenance) and [ThreadAtlas](../threadatlas.md#result-provenance) rows are contributor-run.
+[cachly](../cachly.md#result-provenance), [ThreadAtlas](../threadatlas.md#result-provenance) and
+[CPersona](../cpersona.md#result-provenance) rows are contributor-run.
 LCM-X used OpenRouter; its exact dated answer-model revision is unconfirmed.
 See [run notes and limitations](../results.md#contributor-run-notes) before
 comparing these rows.
@@ -42,6 +43,7 @@ comparing these rows.
 | Maasv | local/self-hosted | 91.80 | 82.98 | 85.98 | 71.88 | 87.73 | 1,551 |
 | cachly | local/self-hosted | 95.01 | 87.94 | 86.29 | 76.04 | 90.71 | 6,673 |
 | ThreadAtlas | local/self-hosted | 93.22 | 85.11 | 86.29 | 70.83 | 88.90 | 6,213 |
+| CPersona | local/self-hosted | 88.70 | 78.01 | 83.18 | 63.54 | 84.03 | 4,441 |
 
 ## Published Reference Results
 

@@ -61,6 +61,7 @@ and LLM settings.
 | `.env.maasv` | [Maasv setup and run configuration](../docs/user_memory/maasv.md) |
 | `.env.threadatlas` | [ThreadAtlas setup and run configuration](../docs/user_memory/threadatlas.md) |
 | `.env.cachly` | [cachly setup and run configuration](../docs/user_memory/cachly.md) |
+| `.env.cpersona` | [CPersona setup and run configuration](../docs/user_memory/cpersona.md) |
 | `.env.agent` | Agent Memory Evaluation / AgentBench |
 
 Templates include only placeholders and public defaults. Do not commit real

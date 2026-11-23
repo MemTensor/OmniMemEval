@@ -206,6 +206,15 @@ def ingest_session(client, session, frame, metadata):
         inject_time(messages, dt, frame)
         client.add(messages, speaker_a_user_id)
 
+    # ── CPersona: one store per conversation, each session stored once ──
+    # The speaker-A view carries both speakers' turns. The record id must be
+    # unique across conversations: a store with an id already present is
+    # skipped as a duplicate.
+    elif frame == "cpersona":
+        inject_time(speaker_a_messages, dt, frame)
+        client.add(speaker_a_messages, speaker_a_user_id,
+                   session_key=f"{speaker_a_user_id}:{session_key}")
+
     # ── Default: dual-speaker with inject_time ───────────────────────────
     else:
         inject_time(speaker_a_messages, dt, frame)

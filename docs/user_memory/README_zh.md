@@ -258,6 +258,7 @@ LongMemEval、BEAM、PersonaMem v2 和 HaluMem 支持 `--streaming 1`，
 | `maasv` | [Maasv 安装与运行配置](./maasv.md) |
 | `threadatlas` | [ThreadAtlas 安装与运行配置](./threadatlas.md) |
 | `cachly` | [cachly 安装与运行配置](./cachly.md) |
+| `cpersona` | [CPersona 安装与运行配置](./cpersona.md) |
 
 接入、配置、隔离与测试要求见
 [适配器清单（英文）](../../CONTRIBUTING.md#adding-a-user-memory-adapter)，

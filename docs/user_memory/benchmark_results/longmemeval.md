@@ -20,7 +20,8 @@ questions; it is not the unweighted mean of the six category percentages.
 ## Reproduced Results
 
 [LCM-X](../lcmx.md#result-provenance), [Maasv](../maasv.md#result-provenance),
-[cachly](../cachly.md#result-provenance) and [ThreadAtlas](../threadatlas.md#result-provenance) rows are contributor-run.
+[cachly](../cachly.md#result-provenance), [ThreadAtlas](../threadatlas.md#result-provenance) and
+[CPersona](../cpersona.md#result-provenance) rows are contributor-run.
 LCM-X used OpenRouter; its exact dated answer-model revision is unconfirmed.
 See [run notes and limitations](../results.md#contributor-run-notes) before
 comparing these rows.
@@ -43,6 +44,7 @@ comparing these rows.
 | Maasv | local/self-hosted | 98.57 | 98.21 | 93.33 | 89.47 | 86.47 | 89.74 | 91.20 | 3,999 |
 | cachly | local/self-hosted | 100.00 | 98.21 | 86.67 | 87.97 | 83.46 | 88.46 | 89.60 | 4,564 |
 | ThreadAtlas | local/self-hosted | 100.00 | 96.43 | 93.33 | 84.21 | 77.44 | 87.18 | 87.00 | 4,351 |
+| CPersona | local/self-hosted | 97.14 | 94.64 | 96.67 | 86.47 | 85.71 | 88.46 | 89.60 | 4,262 |
 
 ## Published Reference Results
 
