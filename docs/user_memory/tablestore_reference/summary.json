@@ -1,0 +1,68 @@
+{
+  "locomo": {
+    "by_category": {
+      "1": {
+        "correct": 227,
+        "questions": 282
+      },
+      "2": {
+        "correct": 279,
+        "questions": 321
+      },
+      "3": {
+        "correct": 66,
+        "questions": 96
+      },
+      "4": {
+        "correct": 787,
+        "questions": 841
+      }
+    },
+    "correct": 1359,
+    "incorrect": 181,
+    "questions": 1540,
+    "reader_calls": 1540,
+    "reader_prompt_tokens": 4510033,
+    "records_sha256": "31ab6c9758ba130214e172cd85d70b11fbaf4a9e03b7f13ef95b12016daba241",
+    "unscored": 0
+  },
+  "longmemeval": {
+    "abstention": {
+      "correct": 27,
+      "questions": 30
+    },
+    "by_category": {
+      "knowledge-update": {
+        "correct": 76,
+        "questions": 78
+      },
+      "multi-session": {
+        "correct": 113,
+        "questions": 133
+      },
+      "single-session-assistant": {
+        "correct": 56,
+        "questions": 56
+      },
+      "single-session-preference": {
+        "correct": 29,
+        "questions": 30
+      },
+      "single-session-user": {
+        "correct": 69,
+        "questions": 70
+      },
+      "temporal-reasoning": {
+        "correct": 121,
+        "questions": 133
+      }
+    },
+    "correct": 464,
+    "incorrect": 36,
+    "questions": 500,
+    "reader_calls": 500,
+    "reader_prompt_tokens": 1687782,
+    "records_sha256": "f5b23384ee762754d686b6c0afca4e088b2144dcddd90e64bdb330182b173bd9",
+    "unscored": 0
+  }
+}
