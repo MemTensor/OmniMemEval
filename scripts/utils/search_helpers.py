@@ -201,6 +201,7 @@ DEFAULT_SEARCH_DISPATCH = {
     "maasv": generic_text_search,
     "threadatlas": generic_text_search,
     "cachly": generic_text_search,
+    "cpersona": generic_text_search,
 }
 
 

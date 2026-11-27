@@ -71,6 +71,7 @@ the reproduced OmniMemEval scores.
 | Maasv | 87.73 | 91.20 | 76.38 | 65.09 | 39.86 | 82.29 |
 | cachly | 90.71 | 89.60 | 73.04 | - | - | - |
 | ThreadAtlas | 88.90 | 87.00 | 73.12 | - | 36.92 | 83.82 |
+| CPersona | 84.03 | 89.60 | - | - | - | - |
 
 ### Contributor-run notes
 
@@ -83,6 +84,7 @@ run history are maintained in the linked backend documentation.
 | [Maasv](./maasv.md#result-provenance) / Maasv team | Direct OpenAI dated models; self-hosted, closed-source backend. Public records support artifact arithmetic and answer/judge replay. |
 | [cachly](./cachly.md#result-provenance) / Heinrich Neb | Direct OpenAI dated models; private reranker and disclosed benchmark-driven tuning. LongMemEval replaces an earlier run affected by a time-zone fault. |
 | [ThreadAtlas](./threadatlas.md#result-provenance) / Justin Hoffman | Baseline memory reading uses the dated model, with every session read during the run. LoCoMo uses the latest of three full runs, not their maximum. Earlier reference runs used different memory-reading settings. |
+| [CPersona](./cpersona.md#result-provenance) / CPersona project (Cloto-dev) | Direct OpenAI models; the judge ran as the `gpt-4o-mini` alias that most backend templates set, observed resolving to the dated model on the run day. Self-hosted, no generative model in the backend. Run on harness `0b1ea8d` with this adapter as a patch; LongMemEval reused a calibration file from an earlier store of the same data, and its modes were developed on 100 of its questions. |
 
 A dash (`-`) means that a reproduced result is not included in this snapshot.
 For these missing cells, full runs were not completed under the same evaluation

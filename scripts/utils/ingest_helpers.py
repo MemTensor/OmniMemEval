@@ -56,6 +56,7 @@ class AddCallTimer:
 _CHAT_TIME_LIBS = frozenset({
     "memos", "everos", "mem0", "cognee", "backboard",
     "memorylake", "viking", "memmachine", "mem9", "lcmx", "maasv", "threadatlas", "cachly",
+    "cpersona",
 })
 
 # ── Libs grouped by session-identification kwarg ─────────────────────────────
@@ -63,6 +64,7 @@ _CHAT_TIME_LIBS = frozenset({
 _CONV_ID_LIBS = frozenset({"memos", "everos"})
 _SESSION_KEY_LIBS = frozenset({
     "cognee", "backboard", "memorylake", "letta", "hindsight", "graphiti",
+    "cpersona",
 })
 
 
