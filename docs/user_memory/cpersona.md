@@ -124,7 +124,7 @@ python scripts/locomo/locomo_metric.py    --lib cpersona --version my_run
 
 The exact commands of the submitted runs, including the two helper scripts that waited for the queue
 and calibrated the LoCoMo users, are in the
-[run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11#commands). The calibration
+[run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11/blob/cc249da5060769db79a5fbae6425467a5318c987/README.md#commands). The calibration
 steps are described under [What differs from a clean run](#what-differs-from-a-clean-run).
 
 ## Result provenance
@@ -147,7 +147,7 @@ The same runs are listed under **Published Reference Results** with their `lite`
 | LongMemEval | 23,867 | 500 | 448 | 89.60 | 2,131,237 / 500 | 4,262 |
 | LoCoMo | 272 | 1,540 | 1,294 | 84.03 | 6,839,071 / 1,540 | 4,441 |
 
-The [run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11) hold, for each run, the
+The [run records](https://github.com/Cloto-dev/cpersona-omnimemeval-2.6.11/tree/cc249da5060769db79a5fbae6425467a5318c987) (commit `cc249da`) hold, for each run, the
 harness's own output files (per-question search results, responses, judged answers, grades, stage
 status files and answer-token receipts), the sessions recorded as stored, the server's and the
 harness's settings with credentials removed, and `verify/recompute.py`, which recomputes every number
