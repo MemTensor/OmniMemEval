@@ -66,6 +66,40 @@ process; see [Result provenance](#result-provenance) for versions.
 python -m unittest scripts/tests/unit/test_cpersona_client.py
 ```
 
+## Adapter smoke
+
+Against a running server, with `CPERSONA_MCP_URL` and `CPERSONA_AUTH_TOKEN` exported, this stores
+one session for each of two users, checks that a search of one never returns the other's record, and
+deletes both. It calls neither the answer nor the judge model.
+
+```bash
+python - <<'PY'
+from scripts.client_factory.registry import create_client
+
+client = create_client("cpersona")
+client.add([{"role": "user", "content": "I adopted a grey cat named Pumpernickel.",
+             "chat_time": "2023-05-08T13:56:00"}], "smoke-a")
+client.add([{"role": "user", "content": "I run a marathon in Kyoto every October.",
+             "chat_time": "2023-07-01T07:00:00"}], "smoke-b")
+try:
+    a = "\n".join(client.search("What is my cat's name?", "smoke-a", 20))
+    assert "Pumpernickel" in a and "Kyoto" not in a
+finally:
+    client.delete("smoke-a")
+b = "\n".join(client.search("Where do I run a marathon?", "smoke-b", 20))
+assert "Kyoto" in b and "Pumpernickel" not in b
+client.delete("smoke-b")
+print("add=2 search=2 delete=2")
+PY
+```
+
+Run on 2026-11-27 against CPersona 2.6.11 installed from PyPI, with the server settings of the runs
+below and the harness on mcp 2.2.0: the snippet above passed, and a longer check of the same client
+passed all 19 of its checks (registry creation; three sessions stored and a repeated session key
+skipped; `pro` and `lite` searches each returning the user's own record, led by its time, and never
+the other user's; cleanup through the harness's `delete_user_data` removing one user's records and
+leaving the other's).
+
 ## Runs
 
 CPersona builds a stored record's search structures on a background queue after the store returns,
@@ -104,7 +138,7 @@ The same runs are listed under **Published Reference Results** with their `lite`
 | Harness | OmniMemEval at commit [`0b1ea8d`](https://github.com/MemTensor/OmniMemEval/tree/0b1ea8d) on Python 3.12.13 (mcp 2.2.0, openai 3.23.0, tiktoken 0.14.0), with this adapter's harness entries applied as a patch and its client added. See [Harness commit and adapter](#harness-commit-and-adapter) |
 | Backend | CPersona 2.6.11 (git tag [`v2.6.11`](https://github.com/Cloto-dev/cpersona/tree/v2.6.11), also on PyPI), self-hosted on one Apple silicon machine (macOS), Python 3.11.15, the settings under [Setup](#setup) |
 | Search | `reconstruct` in `pro` mode with that mode's default count (`CPERSONA_SEARCH_MODE=pro`); `TOPK=20` in the env file, not passed to CPersona |
-| Answer and judge | answers by `gpt-4.1-mini`, recorded as `gpt-4.1-mini-2025-04-14` in `token_usage_answer.json`; one judge run by `gpt-4o-mini`. The harness does not record the judge's resolved snapshot; one API call on the run day showed the alias resolving to `gpt-4o-mini-2024-07-18`. The harness's own prompts and metric |
+| Answer and judge | answers by `gpt-4.1-mini`, recorded as `gpt-4.1-mini-2025-04-14` in `token_usage_answer.json`; one judge run by `gpt-4o-mini`. The harness does not record the judge's resolved snapshot; one API call on the run day showed the alias resolving to `gpt-4o-mini-2024-07-18`. The alias is the `EVAL_MODEL` value of 15 of the 19 backend templates under `env_examples/` at the base commit. The harness's own prompts and metric |
 | Embeddings | `BAAI/bge-m3` (revision `5617a9f61b028005a4858fdac845db406aefb181`) through sentence-transformers 5.6.0 (transformers 5.12.1, torch 2.12.1) on the Apple GPU (`mps`), batch 32, `max_seq_length` 512, normalized, served over HTTP by a local process that cached each text's vector under the text's SHA-256 |
 | Data | LongMemEval-S cleaned (`longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`), all 500 questions; LoCoMo (`locomo10.json`, sha256 `79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4`), the 1,540 questions of categories 1–4. Answer keys unmodified |
 
