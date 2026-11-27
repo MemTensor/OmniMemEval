@@ -179,12 +179,15 @@ class TestCpersonaClient(unittest.TestCase):
             client.add(session("FAIL"), "u1")
 
     def test_a_tool_error_raises_and_a_result_parses(self):
-        def result(text, error):
-            return types.SimpleNamespace(content=[types.SimpleNamespace(text=text)], isError=error)
-        with self.assertRaisesRegex(RuntimeError, "cpersona reconstruct failed: agent_id is required"):
-            CpersonaClient.parse_result("reconstruct", result("agent_id is required", True))
-        self.assertEqual(CpersonaClient.parse_result("store", result('{"result": "stored"}', False)),
-                         {"result": "stored"})
+        # mcp 2.x names the flag is_error; mcp 1.x named it isError. Either must raise.
+        for field in ("is_error", "isError"):
+            def result(text, error, field=field):
+                return types.SimpleNamespace(content=[types.SimpleNamespace(text=text)], **{field: error})
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(RuntimeError, "cpersona reconstruct failed: agent_id is required"):
+                    CpersonaClient.parse_result("reconstruct", result("agent_id is required", True))
+                self.assertEqual(CpersonaClient.parse_result("store", result('{"result": "stored"}', False)),
+                                 {"result": "stored"})
 
 
 class TestCpersonaLocomoSharedStore(unittest.TestCase):

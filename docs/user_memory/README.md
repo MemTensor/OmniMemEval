@@ -8,7 +8,7 @@ This track evaluates memory backend APIs through a shared benchmark pipeline
 and adapter layer. Select a backend with `--lib` to evaluate memory products,
 self-hosted frameworks, or custom adapters under the same benchmark flow.
 
-There are 19 adapter entries covering 18 memory solutions (Zep and Graphiti
+There are 20 adapter entries covering 19 memory solutions (Zep and Graphiti
 have separate entries). Supported benchmarks are LoCoMo, LongMemEval, BEAM,
 PersonaMem v2, and HaluMem.
 

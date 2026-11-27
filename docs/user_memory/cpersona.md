@@ -45,11 +45,11 @@ listed was at its default in the submitted runs):
 TZ=UTC
 CPERSONA_TRANSPORT=streamable-http
 CPERSONA_HTTP_HOST=127.0.0.1
-CPERSONA_HTTP_PORT=<port>
-CPERSONA_AUTH_TOKEN=<a bearer token, also set in .env.cpersona>
-CPERSONA_DB_PATH=<a new, empty database file>
+CPERSONA_HTTP_PORT=8501
+CPERSONA_AUTH_TOKEN="<a bearer token, also set in .env.cpersona>"
+CPERSONA_DB_PATH="<a new, empty database file>"
 CPERSONA_EMBEDDING_MODE=http
-CPERSONA_EMBEDDING_URL=http://127.0.0.1:<embedding port>/embed
+CPERSONA_EMBEDDING_URL="http://127.0.0.1:<embedding port>/embed"
 CPERSONA_EMBEDDING_MODEL=bge-m3
 CPERSONA_MAX_CONTENT_LENGTH=80000
 ```
@@ -107,19 +107,19 @@ so the submitted runs did not start searching until that queue was empty. Run th
 time, under `OMNIMEMEVAL_ENV_FILE=.env.cpersona`:
 
 ```bash
-python scripts/longmemeval/lme_ingestion.py --lib cpersona --version <name> --workers 2
+python scripts/longmemeval/lme_ingestion.py --lib cpersona --version my_run --workers 2
 # wait until the server's queue is empty (get_queue_status reports no pending task)
-python scripts/longmemeval/lme_search.py    --lib cpersona --version <name> --workers 2
-python scripts/longmemeval/lme_responses.py --lib cpersona --version <name> --llm-workers 3
-python scripts/longmemeval/lme_eval.py      --lib cpersona --version <name> --num_runs 1 --llm-workers 5
-python scripts/longmemeval/lme_metric.py    --lib cpersona --version <name>
+python scripts/longmemeval/lme_search.py    --lib cpersona --version my_run --workers 2
+python scripts/longmemeval/lme_responses.py --lib cpersona --version my_run --llm-workers 3
+python scripts/longmemeval/lme_eval.py      --lib cpersona --version my_run --num_runs 1 --llm-workers 5
+python scripts/longmemeval/lme_metric.py    --lib cpersona --version my_run
 
-python scripts/locomo/locomo_ingestion.py --lib cpersona --version <name> --workers 2
+python scripts/locomo/locomo_ingestion.py --lib cpersona --version my_run --workers 2
 # wait as above
-python scripts/locomo/locomo_search.py    --lib cpersona --version <name> --workers 1
-python scripts/locomo/locomo_responses.py --lib cpersona --version <name>
-python scripts/locomo/locomo_eval.py      --lib cpersona --version <name> --num_runs 1
-python scripts/locomo/locomo_metric.py    --lib cpersona --version <name>
+python scripts/locomo/locomo_search.py    --lib cpersona --version my_run --workers 1
+python scripts/locomo/locomo_responses.py --lib cpersona --version my_run
+python scripts/locomo/locomo_eval.py      --lib cpersona --version my_run --num_runs 1
+python scripts/locomo/locomo_metric.py    --lib cpersona --version my_run
 ```
 
 The exact commands of the submitted runs, including the two helper scripts that waited for the queue
@@ -193,8 +193,8 @@ added under `scripts/client_factory/`.
    0.3628 and no per-user entry for any of these users. The server restored it at startup in both
    modes.
 2. **Calibration (LoCoMo).** Each of the 10 users was calibrated once before the store was copied
-   for the two modes. On these small stores (19 to 32 records a user) the server cannot calibrate its
-   recall gate, so it recalibrates the whole store at every start while it serves, and the searches
+   for the two modes. On these small stores (19 to 32 records a user) the server cannot calibrate the
+   score threshold that admits a search result, so it recalibrates the whole store at every start while it serves, and the searches
    ran beside that. A later rerun that waited for the startup calibration to finish returned the same
    context for every one of the 1,540 questions in both modes; it is with the records. Its answers and
    judgments were not run.
@@ -206,8 +206,8 @@ added under `scripts/client_factory/`.
 
 CPersona's response modes were developed on LongMemEval-S itself. 100 of the 500 questions are a
 development set (listed in the records, seed 20261003): the shape of `pro` was chosen there by judged
-accuracy. The other 400 served the registered checks of earlier CPersona releases and some
-exploration; in all, the project judged 32 runs of all or part of the 500 questions between
+accuracy. The other 400 served the comparisons, fixed before each run, that decided earlier CPersona releases,
+and some exploration; in all, the project judged 32 runs of all or part of the 500 questions between
 2026-10-03 and 2026-10-13. On the 400 questions outside the development set, the `pro` run scores
 88.75 (355 of 400), against 93.00 on the 100 development questions. LoCoMo's questions were searched
 once before, on 2026-10-13, with no answers or judging.

@@ -9,7 +9,7 @@
 API。通过 `--lib` 选择后端，可以在同一套 benchmark 流程下评估记忆产品、
 自托管框架和自定义适配器。
 
-目前有 19 个适配器入口，覆盖 18 种记忆方案（Zep 和 Graphiti 使用不同入口），
+目前有 20 个适配器入口，覆盖 19 种记忆方案（Zep 和 Graphiti 使用不同入口），
 支持 LoCoMo、LongMemEval、BEAM、PersonaMem v2 和 HaluMem 五个 benchmark。
 
 首次运行建议按本文顺序阅读。已有环境可以直接查看
